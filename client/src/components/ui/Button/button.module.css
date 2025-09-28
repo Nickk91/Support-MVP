@@ -1,0 +1,15 @@
+.btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.btn[data-variant="primary"] {
+  background: var(--primary);
+  color: purple;
+  border-color: var(--primary);
+}
