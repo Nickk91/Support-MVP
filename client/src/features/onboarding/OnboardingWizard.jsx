@@ -1,7 +1,9 @@
 // src/features/onboarding/OnboardingWizard.jsx
 import { useWizardStore } from "@/store/wizardStore";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import PipelineProgress from "@/components/ui/PipelineProgress/PipelineProgress";
+import RobotProgress from "@/components/ui/RobotProgress/RobotProgress";
+
 import StepWelcome from "./steps/StepWelcome";
 import StepBotBasics from "./steps/StepBotBasics";
 import StepKnowledge from "./steps/StepKnowledge";
@@ -21,17 +23,26 @@ const map = {
 export default function OnboardingWizard() {
   const { steps, currentStepIndex, progress } = useWizardStore();
   const Step = map[steps[currentStepIndex]];
+
   return (
     <div className="max-w-4xl mx-auto p-6 grid gap-4">
-      <Progress value={progress()} className="h-2" />
+      {/* Header row: robot fill + pipeline */}
+      <div className="flex items-center gap-4">
+        <RobotProgress progress={progress()} size="w-12 h-12" />
+        <div className="flex-1">
+          <PipelineProgress steps={steps} currentIndex={currentStepIndex} />
+        </div>
+      </div>
+
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-2">
           <CardTitle className="text-xl">Onboarding</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
           <Step />
         </CardContent>
       </Card>
+
       <div className="text-center text-sm opacity-60">
         Step {currentStepIndex + 1} / {steps.length}
       </div>
