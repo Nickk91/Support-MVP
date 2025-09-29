@@ -1,6 +1,7 @@
 import { useWizardStore } from "../../../store/wizardStore";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
+import { Input } from "@/components/ui/input";
 
 export default function StepKnowledge() {
   const { values, update, next, prev } = useWizardStore();
@@ -19,7 +20,7 @@ export default function StepKnowledge() {
   return (
     <>
       <h3>📚 Knowledge Base</h3>
-      <input
+      <Input
         type="file"
         multiple
         accept=".pdf,.doc,.docx,.txt"
