@@ -1,6 +1,6 @@
 import { useWizardStore } from "../../../store/wizardStore";
 import { useEffect, useState } from "react";
-import Button from "../../../components/ui/Button/Button";
+import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 
 export default function StepDeploy() {
@@ -33,10 +33,10 @@ export default function StepDeploy() {
         {snippet}
       </pre>
       <StepActions>
+        <Button onClick={prev}>Back</Button>
         <Button onClick={() => navigator.clipboard.writeText(snippet)}>
           Copy
         </Button>
-        <Button onClick={prev}>Back</Button>
       </StepActions>
       <p style={{ opacity: 0.7, marginTop: 12 }}>
         Or connect: Slack · Teams · WhatsApp

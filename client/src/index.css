@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === Ragmate Brand Tokens === */
+:root {
+  --background: 245 60% 97%; /* burple-50 */
+  --foreground: 245 80% 20%; /* burple-900 */
+
+  --card: 245 58% 94%; /* burple-100 */
+  --card-foreground: 245 80% 20%;
+
+  --primary: 245 72% 53%; /* burple-600 */
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 245 60% 80%; /* burple-300 */
+  --secondary-foreground: 245 80% 20%;
+
+  --accent: 245 65% 70%; /* burple-400 */
+  --accent-foreground: 245 80% 20%;
+
+  --muted: 245 55% 88%; /* burple-200 */
+  --muted-foreground: 245 50% 30%;
+
+  --border: 245 55% 88%;
+  --input: 245 55% 88%;
+  --ring: 245 72% 53%;
+}
+
+.dark {
+  --background: 245 80% 10%; /* burple-900 */
+  --foreground: 245 40% 95%;
+
+  --card: 245 78% 14%; /* burple-800 */
+  --card-foreground: 245 40% 95%;
+
+  --primary: 245 72% 56%; /* bright burple */
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 245 75% 25%; /* muted burple */
+  --secondary-foreground: 245 65% 90%;
+
+  --accent: 245 65% 40%; /* burple-700 */
+  --accent-foreground: 245 65% 95%;
+
+  --muted: 245 75% 20%;
+  --muted-foreground: 245 50% 70%;
+
+  --border: 245 75% 20%;
+  --input: 245 75% 20%;
+  --ring: 245 72% 56%;
+}
+
+/* apply base */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

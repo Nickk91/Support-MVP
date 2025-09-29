@@ -1,5 +1,5 @@
 import { useWizardStore } from "../../../store/wizardStore";
-import Button from "../../../components/ui/Button/Button";
+import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 
 export default function StepResponses() {
