@@ -1,7 +1,18 @@
 const THEME_KEY = "ragmate-theme"; // "light" | "dark"
 
+function withThemeAnimation(fn) {
+  const root = document.documentElement;
+  root.classList.add("theme-animating");
+  try {
+    fn();
+  } finally {
+    // allow the transitions to run, then remove the class
+    setTimeout(() => root.classList.remove("theme-animating"), 220);
+  }
+}
+
 export function getStoredTheme() {
-  return localStorage.getItem(THEME_KEY); // may be null
+  return localStorage.getItem(THEME_KEY);
 }
 
 export function setStoredTheme(theme) {
@@ -17,18 +28,18 @@ export function applyTheme(theme) {
 export function initTheme() {
   const stored = getStoredTheme();
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  // apply without animation on first paint
   applyTheme(stored ? stored : prefersDark ? "dark" : "light");
 
-  // If you want live system updates ONLY when user hasn't chosen explicitly:
   if (!stored) {
     const mql = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e) => applyTheme(e.matches ? "dark" : "light");
     try {
       mql.addEventListener("change", handler);
     } catch {
-      // Safari
       mql.addListener(handler);
-    }
+    } // Safari
   }
 }
 
@@ -36,7 +47,7 @@ export function toggleTheme() {
   const next = document.documentElement.classList.contains("dark")
     ? "light"
     : "dark";
-  applyTheme(next);
+  withThemeAnimation(() => applyTheme(next));
   setStoredTheme(next);
   return next;
 }

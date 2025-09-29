@@ -90,3 +90,22 @@ body,
   transition: background-color 0.2s ease, color 0.2s ease,
     border-color 0.2s ease;
 }
+
+/* Smooth theme transitions (respect reduced motion) */
+@media (prefers-reduced-motion: no-preference) {
+  .theme-animating,
+  .theme-animating * {
+    transition: background-color 0.2s ease, color 0.2s ease,
+      border-color 0.2s ease, fill 0.2s ease, stroke 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .animate-out {
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
