@@ -1,4 +1,5 @@
 // src/features/onboarding/OnboardingWizard.jsx
+import { useEffect } from "react";
 import { useWizardStore } from "@/store/wizardStore";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import PipelineProgress from "@/components/ui/PipelineProgress/PipelineProgress";
@@ -21,8 +22,32 @@ const map = {
 };
 
 export default function OnboardingWizard() {
-  const { steps, currentStepIndex, progress } = useWizardStore();
+  const {
+    steps,
+    currentStepIndex,
+    progress,
+    values, // <-- pull values from store
+    hydrate, // <-- new action
+  } = useWizardStore();
+
   const Step = map[steps[currentStepIndex]];
+
+  // Save to localStorage whenever values/step changes
+  useEffect(() => {
+    localStorage.setItem(
+      "wizard",
+      JSON.stringify({ values, currentStepIndex })
+    );
+  }, [values, currentStepIndex]);
+
+  // Hydrate once on mount
+  useEffect(() => {
+    const saved = JSON.parse(localStorage.getItem("wizard") || "{}");
+    if (saved && (saved.values || typeof saved.currentStepIndex === "number")) {
+      hydrate(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto p-6 grid gap-4 justify-center">

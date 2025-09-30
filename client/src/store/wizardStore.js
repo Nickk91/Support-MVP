@@ -1,35 +1,57 @@
 // src/store/wizardStore.js
 import { create } from "zustand";
-const steps = [
-  "welcome",
-  "basics",
-  "knowledge",
-  "responses",
-  "preview",
-  "deploy",
-];
-export const useWizardStore = create((set, get) => ({
-  steps,
+
+const initial = {
+  steps: ["welcome", "basics", "knowledge", "responses", "preview", "deploy"],
   currentStepIndex: 0,
   values: {
     botName: "",
     personality: "Friendly",
     model: "gpt-4o-mini",
-    fallback: "Sorry, I couldn’t find that. Please contact support.",
-    escalation: { enabled: true, email: "" },
-    files: [],
-    connectors: [],
+
+    // ✅ add defaults for StepResponses
+    fallback: "",
+    escalation: {
+      enabled: false,
+      email: "",
+    },
   },
-  next: () => {
-    const i = get().currentStepIndex;
-    if (i < steps.length - 1) set({ currentStepIndex: i + 1 });
-  },
-  prev: () => {
-    const i = get().currentStepIndex;
-    if (i > 0) set({ currentStepIndex: i - 1 });
-  },
-  goto: (idx) => set({ currentStepIndex: idx }),
-  update: (patch) => set((s) => ({ values: { ...s.values, ...patch } })),
+};
+
+export const useWizardStore = create((set, get) => ({
+  ...initial,
+
   progress: () =>
-    Math.round(((get().currentStepIndex + 1) / steps.length) * 100),
+    Math.round(((get().currentStepIndex + 1) / get().steps.length) * 100),
+
+  update: (patch) => set((s) => ({ values: { ...s.values, ...patch } })),
+  next: () =>
+    set((s) => ({
+      currentStepIndex: Math.min(s.currentStepIndex + 1, s.steps.length - 1),
+    })),
+  prev: () =>
+    set((s) => ({
+      currentStepIndex: Math.max(s.currentStepIndex - 1, 0),
+    })),
+  reset: () => set(initial),
+
+  // ✅ merge saved values with *nested* defaults
+  hydrate: (saved) =>
+    set((s) => {
+      const savedVals = saved?.values || {};
+      return {
+        ...s,
+        ...(typeof saved?.currentStepIndex === "number"
+          ? { currentStepIndex: saved.currentStepIndex }
+          : {}),
+        values: {
+          ...s.values,
+          ...savedVals,
+          escalation: {
+            ...s.values.escalation,
+            ...(savedVals.escalation || {}),
+          },
+        },
+      };
+    }),
 }));
