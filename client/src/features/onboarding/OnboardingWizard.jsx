@@ -25,11 +25,11 @@ export default function OnboardingWizard() {
   const Step = map[steps[currentStepIndex]];
 
   return (
-    <div className="max-w-4xl mx-auto p-6 grid gap-4">
+    <div className="max-w-4xl mx-auto p-6 grid gap-4 justify-center">
       {/* Header row: robot fill + pipeline */}
       <div className="flex items-center gap-4">
         <RobotProgress progress={progress()} size="w-12 h-12" />
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <PipelineProgress steps={steps} currentIndex={currentStepIndex} />
         </div>
       </div>
