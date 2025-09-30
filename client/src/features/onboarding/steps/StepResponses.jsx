@@ -7,15 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
 export default function StepResponses() {
-  const { values, update, next, prev, validateStep, errors } = useWizardStore();
+  const { values, update, next, prev, validateStep, validateField, errors } =
+    useWizardStore();
 
   const escalation = values?.escalation ?? { enabled: false, email: "" };
   const stepErr = errors?.responses || {};
 
   const handleNext = () => {
-    const ok = validateStep("responses");
-    if (ok) next();
-    // if not ok, errors will be displayed below
+    if (validateStep("responses")) next();
   };
 
   return (
@@ -29,7 +28,10 @@ export default function StepResponses() {
           <Input
             id="fallback"
             value={values.fallback ?? ""}
-            onChange={(e) => update({ fallback: e.target.value })}
+            onChange={(e) => {
+              update({ fallback: e.target.value });
+              validateField("responses", "fallback");
+            }}
             placeholder="Sorry, I couldn’t find that. Can you rephrase?"
             className={
               stepErr.fallback
@@ -47,11 +49,11 @@ export default function StepResponses() {
           <Checkbox
             id="enableEscalation"
             checked={!!escalation.enabled}
-            onCheckedChange={(checked) =>
-              update({
-                escalation: { ...escalation, enabled: !!checked },
-              })
-            }
+            onCheckedChange={(checked) => {
+              update({ escalation: { ...escalation, enabled: !!checked } });
+              // re-validate email field when toggling feature
+              validateField("responses", "escalationEmail");
+            }}
             className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
           />
           <Label htmlFor="enableEscalation" className="font-normal">
@@ -67,11 +69,12 @@ export default function StepResponses() {
               id="escalationEmail"
               type="email"
               value={escalation.email}
-              onChange={(e) =>
+              onChange={(e) => {
                 update({
                   escalation: { ...escalation, email: e.target.value },
-                })
-              }
+                });
+                validateField("responses", "escalationEmail");
+              }}
               placeholder="support@yourcompany.com"
               className={
                 stepErr.escalationEmail

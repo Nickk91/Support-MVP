@@ -10,10 +10,10 @@ export default function StepPreview() {
       <h3>🧪 Preview</h3>
       <ChatPreview />
       <StepActions>
-        <Button onClick={prev}>Back</Button>
-        <Button variant="primary" onClick={next}>
-          Looks Good
+        <Button variant="outline" onClick={prev}>
+          Back
         </Button>
+        <Button onClick={next}>Next</Button>
       </StepActions>
     </>
   );

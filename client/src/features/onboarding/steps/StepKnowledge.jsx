@@ -32,10 +32,10 @@ export default function StepKnowledge() {
         <Button onClick={() => toggle("notion")}>Notion</Button>
       </div>
       <StepActions>
-        <Button onClick={prev}>Back</Button>
-        <Button variant="primary" onClick={next}>
-          Next
+        <Button variant="outline" onClick={prev}>
+          Back
         </Button>
+        <Button onClick={next}>Next</Button>
       </StepActions>
     </>
   );

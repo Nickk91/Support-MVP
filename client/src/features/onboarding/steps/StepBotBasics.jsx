@@ -1,3 +1,4 @@
+// src/features/onboarding/steps/StepBotBasics.jsx
 import { useWizardStore } from "../../../store/wizardStore";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
@@ -6,20 +7,25 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectTrigger,
+  SelectValue,
   SelectContent,
   SelectItem,
-  SelectValue,
 } from "@/components/ui/select";
 
 export default function StepBotBasics() {
-  const { values, update, next, prev } = useWizardStore();
+  const { values, update, next, prev, validateStep, errors } = useWizardStore();
+  const stepErr = errors?.basics || {};
+
+  const handleNext = () => {
+    if (validateStep("basics")) next();
+  };
 
   return (
     <>
-      <h3 className="text-lg font-semibold mb-3">🤖 Bot Basics</h3>
+      <h3 className="mb-3 text-lg font-semibold">🤖 Bot Basics</h3>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {/* Bot Name */}
+      <div className="grid gap-4">
+        {/* Bot name */}
         <div className="grid gap-1">
           <Label htmlFor="botName">Bot Name</Label>
           <Input
@@ -27,17 +33,25 @@ export default function StepBotBasics() {
             value={values.botName}
             onChange={(e) => update({ botName: e.target.value })}
             placeholder="e.g., Ragmate Assistant"
+            className={
+              stepErr.botName
+                ? "border-destructive focus-visible:ring-destructive"
+                : ""
+            }
           />
+          {stepErr.botName && (
+            <p className="text-sm text-destructive">{stepErr.botName}</p>
+          )}
         </div>
 
-        {/* Personality (shadcn Select) */}
+        {/* Personality */}
         <div className="grid gap-1">
-          <Label>Personality</Label>
+          <Label htmlFor="personality">Personality</Label>
           <Select
             value={values.personality}
-            onValueChange={(v) => update({ personality: v })}
+            onValueChange={(val) => update({ personality: val })}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger>
               <SelectValue placeholder="Choose a personality" />
             </SelectTrigger>
             <SelectContent>
@@ -48,15 +62,21 @@ export default function StepBotBasics() {
           </Select>
         </div>
 
-        {/* Model (shadcn Select) */}
+        {/* Model */}
         <div className="grid gap-1">
-          <Label>Model</Label>
+          <Label htmlFor="model">Model</Label>
           <Select
             value={values.model}
-            onValueChange={(v) => update({ model: v })}
+            onValueChange={(val) => update({ model: val })}
           >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a model" />
+            <SelectTrigger
+              className={
+                stepErr.model
+                  ? "border-destructive focus-visible:ring-destructive"
+                  : ""
+              }
+            >
+              <SelectValue placeholder="Choose a model" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
@@ -67,15 +87,17 @@ export default function StepBotBasics() {
               <SelectItem value="llama-3.1-70b">Llama 3.1 70B</SelectItem>
             </SelectContent>
           </Select>
+          {stepErr.model && (
+            <p className="text-sm text-destructive">{stepErr.model}</p>
+          )}
         </div>
       </div>
 
       <StepActions>
-        {/* shadcn variants: default, secondary, outline, destructive, ghost, link */}
         <Button variant="outline" onClick={prev}>
           Back
         </Button>
-        <Button onClick={next}>Next</Button>
+        <Button onClick={handleNext}>Next</Button>
       </StepActions>
     </>
   );
