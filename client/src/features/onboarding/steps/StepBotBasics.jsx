@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/select";
 
 export default function StepBotBasics() {
-  const { values, update, next, prev, validateStep, errors } = useWizardStore();
+  const { values, update, next, prev, validateStep, validateField, errors } =
+    useWizardStore();
+
   const stepErr = errors?.basics || {};
 
   const handleNext = () => {
@@ -31,7 +33,10 @@ export default function StepBotBasics() {
           <Input
             id="botName"
             value={values.botName}
-            onChange={(e) => update({ botName: e.target.value })}
+            onChange={(e) => {
+              update({ botName: e.target.value });
+              validateField("basics", "botName");
+            }}
             placeholder="e.g., Ragmate Assistant"
             className={
               stepErr.botName
@@ -67,7 +72,10 @@ export default function StepBotBasics() {
           <Label htmlFor="model">Model</Label>
           <Select
             value={values.model}
-            onValueChange={(val) => update({ model: val })}
+            onValueChange={(val) => {
+              update({ model: val });
+              validateField("basics", "model");
+            }}
           >
             <SelectTrigger
               className={
