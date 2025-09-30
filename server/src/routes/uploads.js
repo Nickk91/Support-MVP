@@ -14,7 +14,21 @@ const storage = multer.diskStorage({
     cb(null, `${id}__${safeName}`);
   },
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+  fileFilter: (req, file, cb) => {
+    const ok = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+    ];
+    cb(ok.includes(file.mimetype) ? null : new Error("Unsupported file type"));
+  },
+});
 
 // POST /api/uploads/files
 router.post("/files", upload.array("files", 10), (req, res) => {

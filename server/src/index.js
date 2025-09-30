@@ -5,7 +5,7 @@ import cors from "cors";
 import uploadsRoutes from "./routes/uploads.js";
 import botsRoutes from "./routes/bots.js";
 import { requestLogger, errorLogger } from "./lib/logger.js";
-import morgan from "morgan";
+
 
 const app = express();
 
