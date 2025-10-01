@@ -1,8 +1,10 @@
+// src/features/onboarding/steps/StepKnowledge.jsx
 import { useState } from "react";
 import { useWizardStore } from "../../../store/wizardStore";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import { Input } from "@/components/ui/input";
+import api from "@/lib/api";
 
 export default function StepKnowledge() {
   const { values, update, next, prev } = useWizardStore();
@@ -14,21 +16,28 @@ export default function StepKnowledge() {
     update({ files });
   };
 
-  const uploadFiles = async () => {
+  async function uploadFiles(files) {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+
+    // Debug: confirm FormData contents in the browser
+    for (const [k, v] of form.entries()) {
+      console.log("FD", k, v?.name || v);
+    }
+
+    const res = await api.post("/uploads/files", form); // axios sets boundary
+    return res.data; // { ok: true, files: [...] }
+  }
+
+  const handleUpload = async () => {
     if (!values.files?.length) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      for (const f of values.files) fd.append("files", f);
-      const res = await fetch("/api/uploads/files", {
-        method: "POST",
-        body: fd,
-      });
-      const json = await res.json();
-      setUploaded(json.files || []);
-    } catch (e) {
-      console.error(e);
-      alert("Upload failed");
+      const data = await uploadFiles(values.files);
+      console.log("[UPLOAD RESULT]", data);
+      setUploaded(data.files || []);
+    } catch (err) {
+      console.error("Upload failed", err);
     } finally {
       setUploading(false);
     }
@@ -47,7 +56,7 @@ export default function StepKnowledge() {
         />
         <div className="flex gap-2">
           <Button
-            onClick={uploadFiles}
+            onClick={handleUpload}
             disabled={!values.files?.length || uploading}
           >
             {uploading ? "Uploading…" : "Upload to Server"}

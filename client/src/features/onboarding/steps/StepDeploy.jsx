@@ -1,17 +1,17 @@
-// src/features/onboarding/steps/StepDeploy.jsx
 import { useWizardStore } from "../../../store/wizardStore";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import SuccessSplash from "@/components/ui/SuccessSplash/SuccessSplash";
+import api from "@/lib/api";
 
 export default function StepDeploy() {
   const { values, prev } = useWizardStore();
-
   const [snippet, setSnippet] = useState("");
   const [copied, setCopied] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setSnippet(
@@ -26,18 +26,43 @@ export default function StepDeploy() {
       await navigator.clipboard.writeText(snippet);
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  const handleDeploy = () => {
-    // simulate backend provisioning work
+  async function createBot(botPayload) {
+    const res = await api.post("/bots", botPayload);
+    return res.data; // { ok: true, bot: {...} }
+  }
+
+  const handleDeploy = async () => {
+    if (isDeploying) return;
     setIsDeploying(true);
-    setTimeout(() => {
+    setError("");
+
+    try {
+      // Build payload explicitly so we don’t leak extra fields
+      const payload = {
+        name: values.botName,
+        model: values.model,
+        personality: values.personality,
+        fallback: values.fallback,
+        escalation: values.escalation,
+        // from StepKnowledge success; safe if undefined
+        files: values.uploadedFiles || [],
+      };
+
+      const json = await createBot(payload);
+      if (!json?.ok) throw new Error(json?.message || "Bot creation failed");
+
+      // small delight delay then splash
+      setTimeout(() => {
+        setIsDeploying(false);
+        setShowSplash(true);
+      }, 400);
+    } catch (e) {
       setIsDeploying(false);
-      setShowSplash(true); // ⚡ show the “It’s alive!” splash
-    }, 1200);
+      setError(e.message || "Failed to deploy");
+    }
   };
 
   return (
@@ -52,11 +77,13 @@ export default function StepDeploy() {
         {snippet}
       </pre>
 
+      {error && <div className="mt-2 text-sm text-destructive">{error}</div>}
+
       <StepActions>
-        <Button variant="outline" onClick={prev}>
+        <Button variant="outline" onClick={prev} disabled={isDeploying}>
           Back
         </Button>
-        <Button variant="outline" onClick={handleCopy}>
+        <Button variant="outline" onClick={handleCopy} disabled={isDeploying}>
           {copied ? "Copied!" : "Copy"}
         </Button>
         <Button onClick={handleDeploy} disabled={isDeploying}>
@@ -68,7 +95,6 @@ export default function StepDeploy() {
         Or connect: Slack · Teams · WhatsApp
       </p>
 
-      {/* ⚡ Success splash (lightning + “It’s alive!”) */}
       <SuccessSplash
         show={showSplash}
         onComplete={() => setShowSplash(false)}
