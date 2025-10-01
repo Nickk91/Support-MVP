@@ -1,5 +1,6 @@
+// src/features/onboarding/steps/StepDeploy.jsx
+import { useEffect, useMemo, useState } from "react";
 import { useWizardStore } from "../../../store/wizardStore";
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import SuccessSplash from "@/components/ui/SuccessSplash/SuccessSplash";
@@ -7,31 +8,35 @@ import api from "@/lib/api";
 
 export default function StepDeploy() {
   const { values, prev } = useWizardStore();
-  const [snippet, setSnippet] = useState("");
+
   const [copied, setCopied] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
   const [error, setError] = useState("");
+  const [botInfo, setBotInfo] = useState(null);
 
-  useEffect(() => {
-    setSnippet(
-      `<script src="https://cdn.ragmate.io/widget.js" data-bot="${
-        values.botName || "my-bot"
-      }"></script>`
-    );
-  }, [values.botName]);
+  // Prefer an ID-based snippet once the bot is created; otherwise fall back to name.
+  const snippet = useMemo(() => {
+    if (botInfo?.id) {
+      return `<script src="https://cdn.ragmate.io/widget.js" data-bot-id="${botInfo.id}"></script>`;
+    }
+    const name = values.botName?.trim() || "my-bot";
+    return `<script src="https://cdn.ragmate.io/widget.js" data-bot="${name}"></script>`;
+  }, [botInfo?.id, values.botName]);
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(snippet);
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    } catch {}
+    } catch {
+      // ignore
+    }
   };
 
-  async function createBot(botPayload) {
-    const res = await api.post("/bots", botPayload);
-    return res.data; // { ok: true, bot: {...} }
+  async function createBot(payload) {
+    const { data } = await api.post("/bots", payload);
+    return data; // { ok: true, bot: {...} }
   }
 
   const handleDeploy = async () => {
@@ -40,25 +45,28 @@ export default function StepDeploy() {
     setError("");
 
     try {
-      // Build payload explicitly so we don’t leak extra fields
+      // Only send what the backend cares about (align with server's bots route)
       const payload = {
-        name: values.botName,
+        botName: values.botName,
         model: values.model,
         personality: values.personality,
         fallback: values.fallback,
         escalation: values.escalation,
-        // from StepKnowledge success; safe if undefined
-        files: values.uploadedFiles || [],
+        files: values.uploadedFiles || [], // from StepKnowledge
       };
 
       const json = await createBot(payload);
-      if (!json?.ok) throw new Error(json?.message || "Bot creation failed");
+      if (!json?.ok || !json?.bot) {
+        throw new Error(json?.message || "Bot creation failed");
+      }
+
+      setBotInfo(json.bot);
 
       // small delight delay then splash
       setTimeout(() => {
         setIsDeploying(false);
         setShowSplash(true);
-      }, 400);
+      }, 300);
     } catch (e) {
       setIsDeploying(false);
       setError(e.message || "Failed to deploy");
@@ -76,6 +84,13 @@ export default function StepDeploy() {
       <pre className="mt-2 max-w-full overflow-x-auto rounded-lg border bg-black p-3 text-green-400 text-sm">
         {snippet}
       </pre>
+
+      {botInfo && (
+        <div className="mt-2 text-sm text-muted-foreground">
+          Deployed bot <span className="font-mono">{botInfo.id}</span> •{" "}
+          {botInfo.model}
+        </div>
+      )}
 
       {error && <div className="mt-2 text-sm text-destructive">{error}</div>}
 
@@ -95,6 +110,7 @@ export default function StepDeploy() {
         Or connect: Slack · Teams · WhatsApp
       </p>
 
+      {/* ⚡ Success splash (lightning + “It’s alive!”) */}
       <SuccessSplash
         show={showSplash}
         onComplete={() => setShowSplash(false)}

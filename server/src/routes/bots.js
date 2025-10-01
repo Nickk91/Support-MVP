@@ -1,82 +1,74 @@
+// server/src/routes/bots.js
 import { Router } from "express";
 import path from "node:path";
 import fs from "node:fs";
-import { promises as fsp } from "node:fs";
 import { nanoid } from "nanoid";
 
 const router = Router();
 
+// Very simple JSON file store
 const DATA_DIR = path.resolve(process.cwd(), "data");
-const BOTS_DIR = path.join(DATA_DIR, "bots");
-if (!fs.existsSync(BOTS_DIR)) fs.mkdirSync(BOTS_DIR, { recursive: true });
+const BOTS_FILE = path.join(DATA_DIR, "bots.json");
 
-const botPath = (id) => path.join(BOTS_DIR, `${id}.json`);
+function ensureData() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(BOTS_FILE))
+    fs.writeFileSync(BOTS_FILE, JSON.stringify([]), "utf8");
+}
+function readBots() {
+  ensureData();
+  return JSON.parse(fs.readFileSync(BOTS_FILE, "utf8"));
+}
+function writeBots(bots) {
+  ensureData();
+  fs.writeFileSync(BOTS_FILE, JSON.stringify(bots, null, 2), "utf8");
+}
 
-// GET /api/bots (dev helper)
-router.get("/", async (_req, res) => {
-  try {
-    const files = await fsp.readdir(BOTS_DIR);
-    const bots = [];
-    for (const f of files) {
-      if (!f.endsWith(".json")) continue;
-      const raw = await fsp.readFile(path.join(BOTS_DIR, f), "utf8");
-      bots.push(JSON.parse(raw));
-    }
-    res.json({ ok: true, bots });
-  } catch (e) {
-    res
-      .status(500)
-      .json({ ok: false, error: "list_failed", message: e.message });
-  }
-});
+// Create bot
+router.post("/", (req, res) => {
+  const payload = req.body || {};
+  const botName = String(payload.botName || "").trim();
 
-// GET /api/bots/:id
-router.get("/:id", async (req, res) => {
-  try {
-    const full = botPath(req.params.id);
-    const raw = await fsp.readFile(full, "utf8");
-    res.json({ ok: true, bot: JSON.parse(raw) });
-  } catch {
-    res.status(404).json({ ok: false, error: "not_found" });
-  }
-});
-
-// POST /api/bots
-router.post("/", async (req, res) => {
-  // Expect frontend to send: { name, model, personality, fallback, escalation, files }
-  // `files` should be an array of { storedAs, filename, size, mimetype } from upload response
-  const { name, model, personality, fallback, escalation, files } =
-    req.body || {};
-
-  // tiny validation
-  if (!name || typeof name !== "string") {
-    return res.status(400).json({ ok: false, error: "name_required" });
-  }
-  if (!model || typeof model !== "string") {
-    return res.status(400).json({ ok: false, error: "model_required" });
+  if (!botName) {
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: "validation_error",
+        message: "botName is required",
+      });
   }
 
-  const id = nanoid();
   const bot = {
-    id,
-    name,
-    model,
-    personality: personality || "Friendly",
-    fallback: fallback || "",
-    escalation: escalation || { enabled: false, email: "" },
-    files: Array.isArray(files) ? files : [],
+    id: nanoid(),
     createdAt: new Date().toISOString(),
-    status: "ready",
+    botName,
+    personality: payload.personality || "Friendly",
+    model: payload.model || "gpt-4o-mini",
+    fallback: payload.fallback || "",
+    escalation: payload.escalation || { enabled: false, email: "" },
+    // future: connectors, uploaded files, org id, owner id, etc.
   };
 
-  try {
-    await fsp.writeFile(botPath(id), JSON.stringify(bot, null, 2), "utf8");
-    res.status(201).json({ ok: true, bot });
-  } catch (e) {
-    res
-      .status(500)
-      .json({ ok: false, error: "persist_failed", message: e.message });
-  }
+  const bots = readBots();
+  bots.push(bot);
+  writeBots(bots);
+
+  return res.status(201).json({ ok: true, bot });
+});
+
+// List bots
+router.get("/", (_req, res) => {
+  const bots = readBots();
+  res.json({ ok: true, bots });
+});
+
+// Get bot by id
+router.get("/:id", (req, res) => {
+  const bots = readBots();
+  const bot = bots.find((b) => b.id === req.params.id);
+  if (!bot) return res.status(404).json({ ok: false, error: "not_found" });
+  res.json({ ok: true, bot });
 });
 
 export default router;

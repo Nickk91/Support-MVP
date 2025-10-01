@@ -23,19 +23,6 @@ async function main() {
     res.json({ ok: true, ts: new Date().toISOString() });
   });
 
-  // Debug route - add this temporarily
-  app.get("/api/debug", (req, res) => {
-    res.json({
-      message: "Debug route works!",
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  app.post("/api/debug-upload", (req, res) => {
-    console.log("Debug upload hit - headers:", req.headers);
-    res.json({ message: "Debug upload works!", body: req.body });
-  });
-
   // 🔊 Routes with debug middleware
   console.log("[INDEX] Mounting uploads routes");
   app.use(
