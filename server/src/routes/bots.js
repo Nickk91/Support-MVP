@@ -3,10 +3,12 @@ import { Router } from "express";
 import path from "node:path";
 import fs from "node:fs";
 import { nanoid } from "nanoid";
+import { Bot } from "../models/Bot.js";
 
 const router = Router();
+const USE_MONGO = process.env.USE_MONGO === "1";
 
-// Very simple JSON file store
+/** ---------- File store fallback ---------- **/
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const BOTS_FILE = path.join(DATA_DIR, "bots.json");
 
@@ -24,51 +26,108 @@ function writeBots(bots) {
   fs.writeFileSync(BOTS_FILE, JSON.stringify(bots, null, 2), "utf8");
 }
 
-// Create bot
-router.post("/", (req, res) => {
-  const payload = req.body || {};
-  const botName = String(payload.botName || "").trim();
+/** ---------- Routes ---------- **/
 
-  if (!botName) {
-    return res
-      .status(400)
-      .json({
+// Create bot
+router.post("/", async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const botName = String(payload.botName || "").trim();
+    if (!botName) {
+      return res.status(400).json({
         ok: false,
         error: "validation_error",
         message: "botName is required",
       });
+    }
+
+    if (USE_MONGO) {
+      const doc = await Bot.create({
+        botName,
+        systemMessage: payload.systemMessage || "",
+        personality: payload.personality || "Friendly",
+        model: payload.model || "gpt-4o-mini",
+        fallback: payload.fallback || "",
+        escalation: payload.escalation || { enabled: false, email: "" },
+        files: payload.files || [],
+      });
+      return res.status(201).json({ ok: true, bot: toApi(doc) });
+    } else {
+      const bot = {
+        id: nanoid(),
+        createdAt: new Date().toISOString(),
+        botName,
+        systemMessage: payload.systemMessage || "",
+        personality: payload.personality || "Friendly",
+        model: payload.model || "gpt-4o-mini",
+        fallback: payload.fallback || "",
+        escalation: payload.escalation || { enabled: false, email: "" },
+        files: payload.files || [],
+      };
+      const bots = readBots();
+      bots.push(bot);
+      writeBots(bots);
+      return res.status(201).json({ ok: true, bot });
+    }
+  } catch (err) {
+    console.error("[bots:create] error", err);
+    res
+      .status(500)
+      .json({ ok: false, error: "server_error", message: err.message });
   }
-
-  const bot = {
-    id: nanoid(),
-    createdAt: new Date().toISOString(),
-    botName,
-    personality: payload.personality || "Friendly",
-    model: payload.model || "gpt-4o-mini",
-    fallback: payload.fallback || "",
-    escalation: payload.escalation || { enabled: false, email: "" },
-    // future: connectors, uploaded files, org id, owner id, etc.
-  };
-
-  const bots = readBots();
-  bots.push(bot);
-  writeBots(bots);
-
-  return res.status(201).json({ ok: true, bot });
 });
 
 // List bots
-router.get("/", (_req, res) => {
-  const bots = readBots();
-  res.json({ ok: true, bots });
+router.get("/", async (_req, res) => {
+  try {
+    if (USE_MONGO) {
+      const docs = await Bot.find().sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, bots: docs.map(toApi) });
+    } else {
+      const bots = readBots();
+      return res.json({ ok: true, bots });
+    }
+  } catch (err) {
+    res
+      .status(500)
+      .json({ ok: false, error: "server_error", message: err.message });
+  }
 });
 
 // Get bot by id
-router.get("/:id", (req, res) => {
-  const bots = readBots();
-  const bot = bots.find((b) => b.id === req.params.id);
-  if (!bot) return res.status(404).json({ ok: false, error: "not_found" });
-  res.json({ ok: true, bot });
+router.get("/:id", async (req, res) => {
+  try {
+    if (USE_MONGO) {
+      const doc = await Bot.findById(req.params.id).lean();
+      if (!doc) return res.status(404).json({ ok: false, error: "not_found" });
+      return res.json({ ok: true, bot: toApi(doc) });
+    } else {
+      const bots = readBots();
+      const bot = bots.find((b) => b.id === req.params.id);
+      if (!bot) return res.status(404).json({ ok: false, error: "not_found" });
+      return res.json({ ok: true, bot });
+    }
+  } catch (err) {
+    res
+      .status(500)
+      .json({ ok: false, error: "server_error", message: err.message });
+  }
 });
+
+/** ---------- helpers ---------- **/
+function toApi(doc) {
+  // Normalize Mongoose doc to your API shape
+  return {
+    id: String(doc._id),
+    createdAt: doc.createdAt?.toISOString?.() || doc.createdAt,
+    botName: doc.botName,
+    systemMessage: doc.systemMessage ?? "",
+    personality: doc.personality ?? "Friendly",
+    model: doc.model,
+    fallback: doc.fallback ?? "",
+    escalation: doc.escalation ?? { enabled: false, email: "" },
+    files: doc.files ?? [],
+  };
+}
 
 export default router;
