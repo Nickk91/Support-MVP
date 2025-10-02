@@ -1,0 +1,50 @@
+# -------------------------
+# Python environment
+# -------------------------
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache/bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# -------------------------
+# Development tools
+# -------------------------
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# -------------------------
+# Logs
+# -------------------------
+*.log
+*.log.*
+
+# -------------------------
+# Environment variables
+# -------------------------
+.env
+
+# -------------------------
+# User data (runtime only)
+# -------------------------
+data/
+uploads/
+
+# -------------------------
+# Chroma / Vector DB
+# -------------------------
+vectordb/
+chroma/
+chroma.sqlite*
+index/
