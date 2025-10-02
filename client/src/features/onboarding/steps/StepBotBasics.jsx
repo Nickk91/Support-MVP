@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectTrigger,
@@ -49,9 +50,25 @@ export default function StepBotBasics() {
           )}
         </div>
 
-        {/* Personality */}
+        {/* System Message */}
         <div className="grid gap-1">
-          <Label htmlFor="personality">Personality</Label>
+          <Label htmlFor="systemMessage">System Message</Label>
+          <Textarea
+            id="systemMessage"
+            value={values.systemMessage || ""}
+            onChange={(e) => update({ systemMessage: e.target.value })}
+            placeholder='e.g., "You are a nice AI bot that helps users figure out what to eat in one short sentence."'
+            rows={4}
+          />
+          <p className="text-xs text-muted-foreground">
+            This defines the bot’s personality and behavior. Prefer this over
+            the Personality dropdown.
+          </p>
+        </div>
+
+        {/* Personality (optional / legacy) */}
+        <div className="grid gap-1">
+          <Label htmlFor="personality">Personality (optional)</Label>
           <Select
             value={values.personality}
             onValueChange={(val) => update({ personality: val })}

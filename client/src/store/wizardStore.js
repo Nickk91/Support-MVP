@@ -2,6 +2,11 @@
 import { create } from "zustand";
 
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+const LIMITS = {
+  botNameMax: 50,
+  systemMessageMax: 2000,
+  fallbackMax: 200,
+};
 
 const initial = {
   steps: ["welcome", "basics", "knowledge", "responses", "preview", "deploy"],
@@ -9,6 +14,7 @@ const initial = {
   values: {
     botName: "",
     personality: "Friendly",
+    systemMessage: "", // ✅ now validated below
     model: "gpt-4o-mini",
     fallback: "",
     escalation: { enabled: false, email: "" },
@@ -17,7 +23,8 @@ const initial = {
 };
 
 export const useWizardStore = create((set, get) => ({
-  ...initial,
+  // Start with a deep clone to avoid accidental shared refs
+  ...JSON.parse(JSON.stringify(initial)),
 
   progress: () =>
     Math.round(((get().currentStepIndex + 1) / get().steps.length) * 100),
@@ -32,7 +39,7 @@ export const useWizardStore = create((set, get) => ({
     set((s) => ({
       currentStepIndex: Math.max(s.currentStepIndex - 1, 0),
     })),
-  reset: () => set(initial),
+  reset: () => set(() => JSON.parse(JSON.stringify(initial))), // ✅ deep reset
 
   hydrate: (saved) =>
     set((s) => {
@@ -61,8 +68,8 @@ export const useWizardStore = create((set, get) => ({
     if (stepKey === "responses") {
       if (!v.fallback || v.fallback.trim().length === 0) {
         stepErrors.fallback = "Fallback message is required.";
-      } else if (v.fallback.length > 200) {
-        stepErrors.fallback = "Keep fallback under 200 characters.";
+      } else if (v.fallback.length > LIMITS.fallbackMax) {
+        stepErrors.fallback = `Keep fallback under ${LIMITS.fallbackMax} characters.`;
       }
       const esc = v.escalation || {};
       if (esc.enabled) {
@@ -78,11 +85,15 @@ export const useWizardStore = create((set, get) => ({
     if (stepKey === "basics") {
       if (!v.botName || v.botName.trim().length === 0) {
         stepErrors.botName = "Bot name is required.";
-      } else if (v.botName.length > 50) {
-        stepErrors.botName = "Keep bot name under 50 characters.";
+      } else if (v.botName.length > LIMITS.botNameMax) {
+        stepErrors.botName = `Keep bot name under ${LIMITS.botNameMax} characters.`;
       }
       if (!v.model) {
         stepErrors.model = "Please select a model.";
+      }
+      // ✅ systemMessage is optional but capped
+      if (v.systemMessage && v.systemMessage.length > LIMITS.systemMessageMax) {
+        stepErrors.systemMessage = `Keep system message under ${LIMITS.systemMessageMax} characters.`;
       }
     }
 
@@ -99,19 +110,18 @@ export const useWizardStore = create((set, get) => ({
       if (field === "fallback") {
         if (!v.fallback || v.fallback.trim().length === 0) {
           message = "Fallback message is required.";
-        } else if (v.fallback.length > 200) {
-          message = "Keep fallback under 200 characters.";
+        } else if (v.fallback.length > LIMITS.fallbackMax) {
+          message = `Keep fallback under ${LIMITS.fallbackMax} characters.`;
         }
       }
       if (field === "escalationEmail") {
         const esc = v.escalation || {};
-        // Only validate email when escalation is enabled
         if (esc.enabled) {
           if (!esc.email) message = "Escalation email is required.";
           else if (!emailRe.test(esc.email))
             message = "Please enter a valid email address.";
         } else {
-          message = ""; // no error if feature disabled
+          message = "";
         }
       }
     }
@@ -120,12 +130,20 @@ export const useWizardStore = create((set, get) => ({
       if (field === "botName") {
         if (!v.botName || v.botName.trim().length === 0) {
           message = "Bot name is required.";
-        } else if (v.botName.length > 50) {
-          message = "Keep bot name under 50 characters.";
+        } else if (v.botName.length > LIMITS.botNameMax) {
+          message = `Keep bot name under ${LIMITS.botNameMax} characters.`;
         }
       }
       if (field === "model") {
         if (!v.model) message = "Please select a model.";
+      }
+      if (field === "systemMessage") {
+        if (
+          v.systemMessage &&
+          v.systemMessage.length > LIMITS.systemMessageMax
+        ) {
+          message = `Keep system message under ${LIMITS.systemMessageMax} characters.`;
+        }
       }
     }
 
