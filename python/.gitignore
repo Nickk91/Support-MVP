@@ -48,3 +48,4 @@ vectordb/
 chroma/
 chroma.sqlite*
 index/
+python/data/vectordb/
