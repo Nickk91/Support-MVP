@@ -2,9 +2,18 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 python-dotenv==1.0.1
+
+# LangChain 0.2.x line (core < 0.3)
 langchain==0.2.16
 langchain-community==0.2.16
 langchain-text-splitters==0.2.2
-chromadb==0.5.4
+
+# Let langchain-chroma pick a compatible chromadb (not 0.5.4/0.5.5)
+langchain-chroma==0.1.4
+
+# Extras
 sentence-transformers==3.0.1
 pypdf==4.3.1
+
+# Vector backends
+faiss-cpu==1.8.0
