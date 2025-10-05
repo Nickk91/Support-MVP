@@ -1,31 +1,23 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, Field
+import logging
+from typing import List, Optional
 
-from app.rag.core import ingest_files, answer_query
+from app.rag.core import ingest_files
 
 router = APIRouter(tags=["ingest"])
+log = logging.getLogger(__name__)
 
 class IngestBody(BaseModel):
-    bot_id: str
-    paths: List[str]
+    bot_id: str = Field(min_length=1)
+    paths: List[str] = Field(min_items=1)
+    user_id: Optional[str] = None
 
 @router.post("/ingest")
-def ingest_endpoint(body: IngestBody):
+async def ingest(body: IngestBody):
     try:
-        added = ingest_files(body.bot_id, body.paths)
-        return {"ok": True, "chunks_added": added}
+        count = ingest_files(body.bot_id, body.paths, user_id=body.user_id)
+        return {"ok": True, "chunks_added": count}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-class AskBody(BaseModel):
-    bot_id: str
-    question: str
-
-@router.post("/ask")
-def ask_endpoint(body: AskBody):
-    try:
-        answer = answer_query(body.bot_id, body.question)
-        return {"ok": True, "answer": answer}
-    except Exception as e:
+        log.exception("ingest() failed for bot_id=%s", body.bot_id)
         raise HTTPException(status_code=400, detail=str(e))

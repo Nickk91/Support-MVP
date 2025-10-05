@@ -25,3 +25,29 @@ def ingest_files_for_bot(bot_id: str, file_paths: List[str]):
     persist_dir = persist_dir_for_bot(bot_id)
     Chroma.from_documents(chunks, embedding=embeddings, persist_directory=persist_dir)
     return True, len(chunks)
+
+
+def ingest_files(
+    bot_id: str,
+    file_paths: List[str],
+    *,
+    user_id: Optional[str] = None,
+    chunk_size: int = 800,
+    chunk_overlap: int = 120,
+) -> int:
+    docs = load_paths(file_paths)
+    chunks = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    ).split_documents(docs)
+
+    # Tag scope: "user:<id>" or "global"
+    scope = f"user:{user_id}" if user_id else "global"
+    for d in chunks:
+        d.metadata = {**(d.metadata or {}), "user_scope": scope}
+
+    vs = get_vectorstore(bot_id)
+    vs.add_documents(chunks)
+    # For Chroma this persists internally; for FAISS your vectorstore wrapper handles saving.
+    if hasattr(vs, "persist"):
+        vs.persist()
+    return len(chunks)

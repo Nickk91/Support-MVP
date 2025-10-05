@@ -1,6 +1,12 @@
 # python\app\main.py
+# app/main.py
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=False)
+
+
 from fastapi import FastAPI
 from app.routers import health, ingest, query
+
 
 app = FastAPI(title="Support MVP - RAG API")
 

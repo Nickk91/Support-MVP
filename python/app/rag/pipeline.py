@@ -1,25 +1,34 @@
-import os
-from typing import Tuple
-from rag.config import VECTOR_ROOT
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+# app/rag/pipeline.py
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableMap
+from langchain_core.output_parsers import StrOutputParser
 
-def embeddings_model():
-    # Local, no-API embedding model
-    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+def build_prompt(system_message: str) -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_message),
+        MessagesPlaceholder("context_messages"),
+        ("human", "{question}")
+    ])
 
-def bot_store_paths(bot_id: str) -> Tuple[str, str]:
-    """
-    Where to persist vector data for a bot.
-    """
-    base = os.path.abspath(os.path.join(VECTOR_ROOT, bot_id))
-    os.makedirs(base, exist_ok=True)
-    return base, base  # (persist_directory, collection_name)
+def build_chain(llm, prompt, retriever):
+    def join_docs(docs):
+        return "\n\n".join(
+            f"[{i+1}] {d.page_content}\n(source: {d.metadata.get('source','?')})"
+            for i, d in enumerate(docs)
+        )
 
-def get_vectorstore(bot_id: str) -> Chroma:
-    persist_dir, collection = bot_store_paths(bot_id)
-    return Chroma(
-        collection_name=collection,
-        persist_directory=persist_dir,
-        embedding_function=embeddings_model(),
+    return (
+        RunnableMap({
+            "question": lambda x: x["question"],
+            "docs":    lambda x: retriever(x["question"]),
+        })
+        .assign(context=lambda x: join_docs(x["docs"]))
+        .assign(context_messages=lambda x: [("system", f"Context:\n{x['context']}")])
+        .assign(messages=lambda x: prompt.format_prompt(
+            question=x["question"], context_messages=x["context_messages"]
+        ).to_messages())
+        .pick("messages")          # <-- send ONLY the messages to the chat model
+        .pipe(llm)
+        .pipe(StrOutputParser())
     )

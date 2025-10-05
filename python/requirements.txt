@@ -11,6 +11,10 @@ langchain-text-splitters==0.2.2
 # Let langchain-chroma pick a compatible chromadb (not 0.5.4/0.5.5)
 langchain-chroma==0.1.4
 
+# open ai
+langchain-openai==0.1.22
+
+
 # Extras
 sentence-transformers==3.0.1
 pypdf==4.3.1
