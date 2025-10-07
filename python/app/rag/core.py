@@ -1,10 +1,13 @@
+# app/rag/core.py
 from typing import List, Optional
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from app.rag.stores import get_vectorstore
 from app.rag.loaders import load_paths
 from app.rag.retriever import make_retriever
 from app.rag.pipeline import build_prompt, build_chain
 from app.rag.llm import make_llm
+from app.rag.splitters import make_default_splitter
+
 
 def ingest_files(
     bot_id: str,
@@ -14,11 +17,14 @@ def ingest_files(
     chunk_size: int = 800,
     chunk_overlap: int = 120,
 ) -> int:
+    # Load
     docs = load_paths(file_paths)
-    chunks = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
-    ).split_documents(docs)
 
+    # Split (shared splitter)
+    splitter = make_default_splitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_documents(docs)
+
+    # Scope metadata
     scope = f"user:{user_id}" if user_id else "global"
     for ch in chunks:
         md = ch.metadata or {}
@@ -27,11 +33,18 @@ def ingest_files(
         md.setdefault("source", md.get("source", "uploaded"))
         ch.metadata = md
 
+    # Upsert to vector store
     vs = get_vectorstore(bot_id)
     vs.add_documents(chunks)
     if hasattr(vs, "persist"):
-        vs.persist()
+        # FAISS: save_local happens inside our vectorstore; Chroma: persist() is a no-op if managed
+        try:
+            vs.persist()
+        except Exception:
+            pass
+
     return len(chunks)
+
 
 def answer_query(
     bot_id: str,
@@ -44,6 +57,7 @@ def answer_query(
         "You are a concise support assistant. Use ONLY the provided context. "
         "If the answer is not in the context, say you don't know."
     )
+
     retriever = make_retriever(bot_id, user_id=user_id)
     llm = make_llm()
     prompt = build_prompt(system_message)
