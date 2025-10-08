@@ -105,4 +105,6 @@ share/python-wheels/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db
+Thumbs.dbuser1_secure.txt
+user2_secure.txt
+global_secure.txt
