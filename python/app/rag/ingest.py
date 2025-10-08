@@ -1,53 +1,32 @@
-from pathlib import Path
-from typing import List
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
-from .config import PERSIST_ROOT, EMBEDDINGS_MODEL
-from .loaders import load_docs
+# app/routers/ingest.py
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from typing import List, Optional
+import logging
 
-def persist_dir_for_bot(bot_id: str) -> str:
-    d = Path(PERSIST_ROOT) / bot_id / "chroma"
-    d.mkdir(parents=True, exist_ok=True)
-    return str(d)
+from app.rag.core import ingest_files
 
-def ingest_files_for_bot(bot_id: str, file_paths: List[str]):
-    docs = load_docs(file_paths)
-    if not docs:
-        return True, 0
+router = APIRouter(tags=["ingest"])
+log = logging.getLogger(__name__)
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1200, chunk_overlap=150, separators=["\n\n", "\n", " ", ""]
-    )
-    chunks = splitter.split_documents(docs)
-    embeddings = OpenAIEmbeddings(model=EMBEDDINGS_MODEL)
+class IngestBody(BaseModel):
+    bot_id: str = Field(min_length=1)
+    paths: List[str]
+    user_id: Optional[str] = None
+    chunk_size: int = 800
+    chunk_overlap: int = 120
 
-    persist_dir = persist_dir_for_bot(bot_id)
-    Chroma.from_documents(chunks, embedding=embeddings, persist_directory=persist_dir)
-    return True, len(chunks)
-
-
-def ingest_files(
-    bot_id: str,
-    file_paths: List[str],
-    *,
-    user_id: Optional[str] = None,
-    chunk_size: int = 800,
-    chunk_overlap: int = 120,
-) -> int:
-    docs = load_paths(file_paths)
-    chunks = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
-    ).split_documents(docs)
-
-    # Tag scope: "user:<id>" or "global"
-    scope = f"user:{user_id}" if user_id else "global"
-    for d in chunks:
-        d.metadata = {**(d.metadata or {}), "user_scope": scope}
-
-    vs = get_vectorstore(bot_id)
-    vs.add_documents(chunks)
-    # For Chroma this persists internally; for FAISS your vectorstore wrapper handles saving.
-    if hasattr(vs, "persist"):
-        vs.persist()
-    return len(chunks)
+@router.post("/ingest")
+async def ingest(body: IngestBody):
+    try:
+        count = ingest_files(
+            body.bot_id,
+            body.paths,
+            user_id=body.user_id,
+            chunk_size=body.chunk_size,
+            chunk_overlap=body.chunk_overlap,
+        )
+        return {"ok": True, "chunks_added": count}
+    except Exception as e:
+        log.exception("ingest() failed for bot_id=%s", body.bot_id)
+        raise HTTPException(status_code=400, detail=str(e))

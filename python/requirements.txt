@@ -14,7 +14,6 @@ langchain-chroma==0.1.4
 # open ai
 langchain-openai==0.1.22
 
-
 # Extras
 sentence-transformers==3.0.1
 pypdf==4.3.1

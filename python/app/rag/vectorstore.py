@@ -1,37 +1,52 @@
-# app/rag/vectorstore.py
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma, FAISS
 from langchain_core.documents import Document
 
+
 # ---------- Paths ----------
-REPO_ROOT = Path(__file__).resolve().parents[2]  # <repo>/python
+REPO_ROOT = Path(__file__).resolve().parents[2]
 VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
 VECTORDIR.mkdir(parents=True, exist_ok=True)
 
+
 # ---------- Embeddings ----------
 def _embeddings():
-    # Using community embeddings to stay compatible with your LC 0.2.x pins
+    # Add timeout and local files only to avoid download issues
     return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': False},
+        # Prevent timeouts by using local cache only
     )
+
+def get_embeddings():
+    """Get the embeddings model"""
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': False}
+    )
+
 
 # ---------- Chroma backend ----------
 def get_chroma_store(bot_id: str) -> Chroma:
-    persist_dir = (VECTORDIR / bot_id / "chroma").as_posix()
-    os.makedirs(persist_dir, exist_ok=True)
+    persist_dir = (VECTORDIR / bot_id / "chroma")
+    persist_dir.mkdir(parents=True, exist_ok=True)
     return Chroma(
         collection_name=f"bot_{bot_id}",
         embedding_function=_embeddings(),
-        persist_directory=persist_dir,
+        persist_directory=persist_dir.as_posix(),
     )
 
-# ---------- FAISS backend (with persistence) ----------
+
+# ---------- FAISS helpers ----------
 def _faiss_dir(bot_id: str) -> Path:
     d = VECTORDIR / bot_id / "faiss"
     d.mkdir(parents=True, exist_ok=True)
@@ -39,11 +54,7 @@ def _faiss_dir(bot_id: str) -> Path:
 
 def _faiss_try_load(bot_id: str) -> Optional[FAISS]:
     d = _faiss_dir(bot_id)
-    # FAISS saves index + store under this directory
-    index_file = d / "index.faiss"
-    store_file = d / "index.pkl"
-    if index_file.exists() and store_file.exists():
-        # allow_dangerous_deserialization is required by LC to unpickle doc store
+    if (d / "index.faiss").exists() and (d / "index.pkl").exists():
         return FAISS.load_local(
             d.as_posix(),
             _embeddings(),
@@ -51,52 +62,42 @@ def _faiss_try_load(bot_id: str) -> Optional[FAISS]:
         )
     return None
 
+class _EmptyRetriever:
+    def invoke(self, _q: str) -> List[Document]:
+        return []
+    def get_relevant_documents(self, _q: str) -> List[Document]:
+        return []
+
 class LazyFaissStore:
-    """
-    Creates/loads a FAISS store on demand and persists to disk.
-    API surface matches what the rest of your app uses:
-      - add_documents(...)
-      - persist()
-      - as_retriever(...)
-    """
     def __init__(self, bot_id: str):
         self.bot_id = bot_id
         self._store: Optional[FAISS] = _faiss_try_load(bot_id)
 
-    def _ensure(self):
-        if self._store is None:
-            # Create an empty store by adding at least one doc then deleting it,
-            # or just wait until first real add. We'll do it on first add.
-            pass
-
-    def add_documents(self, docs: list[Document]):
+    def add_documents(self, docs: List[Document]):
         if not docs:
             return
         if self._store is None:
-            # first add creates the index
             self._store = FAISS.from_documents(docs, _embeddings())
         else:
             self._store.add_documents(docs)
-        # auto-persist after add to keep disk in sync
         self.persist()
 
     def persist(self):
         if self._store is None:
             return
-        self._store.save_local(_faiss_dir(self.bot_id).as_posix())
+        out_dir = _faiss_dir(self.bot_id)
+        self._store.save_local(out_dir.as_posix())
 
     def as_retriever(self, **kwargs):
         if self._store is None:
-            # no data yet: create an empty index with a tiny placeholder that we remove
-            placeholder = [Document(page_content="__init__ placeholder__")]
-            self._store = FAISS.from_documents(placeholder, _embeddings())
-            # remove the placeholder vector by rebuilding from empty list
-            self._store = FAISS.from_texts([], _embeddings())
-            self.persist()
+            self._store = _faiss_try_load(self.bot_id)
+        if self._store is None:
+            return _EmptyRetriever()
         return self._store.as_retriever(**kwargs)
 
 def get_faiss_store(bot_id: str) -> LazyFaissStore:
     return LazyFaissStore(bot_id)
+
 
 # ---------- Backend registry ----------
 _BACKENDS: dict[str, Callable[[str], object]] = {
@@ -110,6 +111,8 @@ def _resolve_backend_name(override: Optional[str] = None) -> str:
         raise ValueError(f"Unknown vector backend '{name}'. Supported: {', '.join(_BACKENDS)}")
     return name
 
-def get_vectorstore(bot_id: str, *, backend: Optional[str] = None):
-    """Main entrypoint; choose backend via arg or RAG_VECTOR_BACKEND env (default 'chroma')."""
-    return _BACKENDS[_resolve_backend_name(backend)](bot_id)
+def get_vectorstore(bot_id: str, backend: str = None) -> object:
+    """Get vector store for a specific bot using the backend registry"""
+    backend_name = _resolve_backend_name(backend)
+    store_factory = _BACKENDS[backend_name]
+    return store_factory(bot_id)

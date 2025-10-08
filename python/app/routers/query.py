@@ -13,15 +13,17 @@ class AskBody(BaseModel):
     question: str = Field(min_length=1)
     system_message: Optional[str] = None
     user_id: Optional[str] = None
+    fallback_to_llm: bool = True  # NEW: Client can control fallback
 
 @router.post("/ask")
 async def ask(body: AskBody):
     try:
-        answer = answer_query(
+        answer = await answer_query(  # Changed to await since it's now async
             body.bot_id,
             body.question,
             user_id=body.user_id,
             system_message=body.system_message,
+            fallback_to_llm=body.fallback_to_llm  # NEW: Pass the fallback parameter
         )
         return {"ok": True, "answer": answer}
     except Exception:
