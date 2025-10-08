@@ -34,12 +34,27 @@ __pycache__/
 # Environment variables
 # -------------------------
 .env
+!.env.example
 
 # -------------------------
 # User data (runtime only)
 # -------------------------
 data/
 uploads/
+
+# -------------------------
+# Test and temporary files
+# -------------------------
+activation_steps.txt
+test_fallback.py
+test_openai_direct.py
+test_security.py
+company_data.txt
+user1_data.txt
+user2_data.txt
+global_data.txt
+*.tmp
+*.temp
 
 # -------------------------
 # Chroma / Vector DB
@@ -49,3 +64,45 @@ chroma/
 chroma.sqlite*
 index/
 python/data/vectordb/
+
+# -------------------------
+# Package and build files
+# -------------------------
+*.egg-info/
+dist/
+build/
+*.egg
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.manifest
+*.spec
+
+# -------------------------
+# IDE and editor files
+# -------------------------
+*.sublime-*
+*.komodoproject
+*.komodoworkspace
+*.sublime-workspace
+
+# -------------------------
+# OS generated files
+# -------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
