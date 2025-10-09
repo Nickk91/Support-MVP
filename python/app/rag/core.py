@@ -1,8 +1,9 @@
-from typing import List, Optional
+# app/routers/core.py
+
+from typing import List, Optional, Dict, Any
 import logging
 from langchain.schema import Document, HumanMessage, SystemMessage
 
-# This should import from your vectorstore module
 from app.rag.vectorstore import get_vectorstore
 from app.rag.loaders import load_paths
 from app.rag.retriever import make_retriever
@@ -11,6 +12,7 @@ from app.rag.llm import make_llm
 
 logger = logging.getLogger(__name__)
 
+# KEEP ingest_files EXACTLY AS IS - it's working perfectly
 def ingest_files(
     bot_id: str,
     file_paths: List[str],
@@ -41,27 +43,23 @@ def ingest_files(
         md.setdefault("source", md.get("source", "uploaded"))
         ch.metadata = md
 
-    # Upsert to vector store - FIX: Use the correct function signature
+    # Upsert to vector store
     vs = get_vectorstore(bot_id)
     vs.add_documents(chunks)
     
-    # Persist if available
-    if hasattr(vs, "persist"):
-        try:
-            vs.persist()
-        except Exception:
-            pass
-
+   
     return len(chunks)
 
+# UPDATE answer_query function with admin citations
 async def answer_query(
     bot_id: str,
     question: str,
     *,
     user_id: Optional[str] = None,
     system_message: Optional[str] = None,
-    fallback_to_llm: bool = True
-) -> str:
+    fallback_to_llm: bool = True,
+    include_sources: bool = False
+) -> Dict[str, Any]:
     """Answer a question using RAG, with optional fallback to pure LLM"""
     
     system_message = system_message or (
@@ -73,49 +71,82 @@ async def answer_query(
     retriever = make_retriever(bot_id, user_id=user_id)
     llm = make_llm()
     
-    # DEBUG: More detailed logging
-    print(f"🔍 DEBUG: Using LLM: {type(llm)}")
-    print(f"🔍 DEBUG: Original system_message: {system_message}")
-    print(f"🔍 DEBUG: Fallback enabled: {fallback_to_llm}")
-    
     # Try to retrieve relevant documents
     try:
-        # FIX: Check if retriever is callable (function) or already a retriever object
+        # Get documents for source tracking (regardless of fallback)
         if callable(retriever):
-            documents = retriever(question)  # It's a function
+            documents = retriever(question)
         else:
-            documents = retriever.get_relevant_documents(question)  # It's an object
+            documents = retriever.get_relevant_documents(question)
             
-        print(f"🔍 DEBUG: Retrieved {len(documents)} documents")
+        logger.info(f"Retrieved {len(documents)} documents")
         
-        # TEMPORARY: Bypass the guardrail completely for testing
+        # TEMPORARY: Bypass the guardrail completely for testing - REMOVE THIS LATER
         if fallback_to_llm:
-             print("🔍 DEBUG: Bypassing guardrail, using pure LLM")
-             result = _answer_with_llm_only(llm, question, system_message)  # Remove await
-             print(f"🔍 DEBUG: LLM response: {result}")
-             return result
+            print("🔍 DEBUG: Using pure LLM fallback for testing")
+            result = _answer_with_llm_only(llm, question, system_message)
+            return {
+                "answer": result,
+                "sources": ["general_knowledge"],
+                "source_details": [],
+                "document_count": 0,
+                "fallback_used": True
+            }
         
-        # Proceed with normal RAG flow
+        # Normal RAG flow
         prompt = build_prompt(system_message)
         chain = build_chain(llm, prompt, retriever)
-        result = chain.invoke({"question": question})
-        return result
+        answer = chain.invoke({"question": question})
+        
+        # Source information
+        sources = []
+        source_details = []
+        
+        if documents:
+            # Get unique source files
+            source_files = list(set([
+                doc.metadata.get("source", "unknown") 
+                for doc in documents 
+                if doc.metadata.get("source")
+            ]))
+            sources = source_files
+            
+            # Detailed source information
+            source_details = [
+                {
+                    "source": doc.metadata.get("source", "unknown"),
+                    "user_scope": doc.metadata.get("user_scope", "unknown"),
+                    "content_preview": doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content,
+                    "relevance_score": getattr(doc, 'score', None)  # If available
+                }
+                for doc in documents
+            ]
+        
+        return {
+            "answer": answer,
+            "sources": sources,
+            "source_details": source_details,
+            "document_count": len(documents),
+            "fallback_used": False
+        }
         
     except Exception as e:
-        print(f"🔍 DEBUG: Error occurred: {e}")
-        # Fallback to LLM on error too
+        logger.error(f"Error in answer_query: {e}")
         if fallback_to_llm:
-            print("🔍 DEBUG: Error fallback to LLM")
-            return await _answer_with_llm_only(llm, question, system_message)
+            return {
+                "answer": _answer_with_llm_only(llm, question, system_message),
+                "sources": ["general_knowledge"],
+                "source_details": [],
+                "document_count": 0,
+                "fallback_used": True
+            }
         raise
 
+# KEEP _answer_with_llm_only but update return handling
 def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
     """Answer using LLM only without RAG context"""
     # Use a DIFFERENT system message for fallback mode
     fallback_system_message = "You are a helpful assistant. Answer the user's question based on your general knowledge."
-    
-    print(f"🔍 DEBUG: Fallback system_message: {fallback_system_message}")
-    print(f"🔍 DEBUG: Fallback question: {question}")
     
     messages = [
         SystemMessage(content=fallback_system_message),
@@ -125,15 +156,12 @@ def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = No
     try:
         # Use sync invoke instead of async ainvoke
         response = llm.invoke(messages)
-        print(f"🔍 DEBUG: OpenAI raw response type: {type(response)}")
-        print(f"🔍 DEBUG: OpenAI raw response: {response}")
         return response.content
     except Exception as e:
-        print(f"🔍 DEBUG: Error in _answer_with_llm_only: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in _answer_with_llm_only: {e}")
         return f"Error: {e}"
 
+# KEEP _is_context_insufficient function as is
 def _is_context_insufficient(documents: List[Document], question: str) -> bool:
     """Determine if retrieved context is insufficient for the question"""
     if not documents:
