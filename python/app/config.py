@@ -3,6 +3,9 @@ import os
 from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 
 # Load once at process start
 load_dotenv()
@@ -33,3 +36,22 @@ OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # ---- Helpers (optional) ----
 def ensure_dirs() -> None:
     VECTOR_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+
+    # Database URL - using SQLite for development
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./rag_platform.db")
+
+# Create engine
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
+
+# Create SessionLocal class
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
