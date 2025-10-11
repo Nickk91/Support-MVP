@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 const EscalationSchema = new mongoose.Schema(
   {
     enabled: { type: Boolean, default: false },
-    email: { type: String, default: "" }, // you can add basic regex if you want
+    email: { type: String, default: "" },
   },
   { _id: false }
 );
@@ -37,14 +37,14 @@ const BotSchema = new mongoose.Schema(
     escalation: { type: EscalationSchema, default: () => ({}) },
     files: { type: [FileSchema], default: [] },
 
-    // room to grow:
-    // ownerId: { type: String, index: true },
-    // orgId: { type: String, index: true },
+    // Multi-tenant fields - ADD THESE:
+    tenantId: { type: String, required: true, index: true },
+    ownerId: { type: String, required: true, index: true },
   },
-  { timestamps: true } // createdAt / updatedAt
+  { timestamps: true }
 );
 
-// Example uniqueness per owner could be enforced with a compound index later:
-// BotSchema.index({ ownerId: 1, botName: 1 }, { unique: true });
+// Compound index for tenant isolation - ADD THIS:
+BotSchema.index({ tenantId: 1, botName: 1 }, { unique: true });
 
 export const Bot = mongoose.models.Bot || mongoose.model("Bot", BotSchema);

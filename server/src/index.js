@@ -9,6 +9,7 @@ import botsRoutes from "./routes/bots.js";
 import { requestLogger, errorLogger } from "./lib/logger.js";
 import { ensureUploadDir } from "./lib/fsutil.js";
 import { connectMongo } from "./lib/mongo.js";
+import authRoutes from "./routes/auth.js";
 
 async function main() {
   // Connect to Mongo if enabled
@@ -27,6 +28,7 @@ async function main() {
   app.use(cors({ origin: true })); // TODO: lock down allowed origins in prod
   app.use(express.json({ limit: "2mb" }));
   app.use(requestLogger);
+  app.use("/api/auth", authRoutes);
 
   // Health & readiness
   app.get("/api/health", (_req, res) => {
