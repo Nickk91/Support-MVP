@@ -1,4 +1,4 @@
-# app/routers/core.py
+# app/rag/core.py
 
 from typing import List, Optional, Dict, Any
 import logging
@@ -12,12 +12,13 @@ from app.rag.llm import make_llm
 
 logger = logging.getLogger(__name__)
 
-# KEEP ingest_files EXACTLY AS IS - it's working perfectly
+# UPDATE ingest_files to accept tenant_id
 def ingest_files(
     bot_id: str,
     file_paths: List[str],
     *,
     user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,  # ADD tenant_id parameter
     chunk_size: int = 800,
     chunk_overlap: int = 120,
 ) -> int:
@@ -34,28 +35,30 @@ def ingest_files(
         
     chunks = splitter.split_documents(docs)
 
-    # Scope metadata
+    # Scope metadata - ADD tenant_id to metadata
     scope = f"user:{user_id}" if user_id else "global"
     for ch in chunks:
         md = ch.metadata or {}
         md.setdefault("bot_id", bot_id)
         md.setdefault("user_scope", scope)
         md.setdefault("source", md.get("source", "uploaded"))
+        if tenant_id:  # ADD tenant_id to metadata if provided
+            md.setdefault("tenant_id", tenant_id)
         ch.metadata = md
 
     # Upsert to vector store
     vs = get_vectorstore(bot_id)
     vs.add_documents(chunks)
     
-   
     return len(chunks)
 
-# UPDATE answer_query function with admin citations
+# UPDATE answer_query function to accept tenant_id
 async def answer_query(
     bot_id: str,
     question: str,
     *,
     user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,  # ADD tenant_id parameter
     system_message: Optional[str] = None,
     fallback_to_llm: bool = True,
     include_sources: bool = False
@@ -67,8 +70,8 @@ async def answer_query(
         "If the answer is not in the context, say you don't know."
     )
 
-    # Build components
-    retriever = make_retriever(bot_id, user_id=user_id)
+    # Build components - PASS tenant_id to retriever
+    retriever = make_retriever(bot_id, user_id=user_id, tenant_id=tenant_id)
     llm = make_llm()
     
     # Try to retrieve relevant documents
@@ -111,11 +114,12 @@ async def answer_query(
             ]))
             sources = source_files
             
-            # Detailed source information
+            # Detailed source information - INCLUDE tenant_id in response
             source_details = [
                 {
                     "source": doc.metadata.get("source", "unknown"),
                     "user_scope": doc.metadata.get("user_scope", "unknown"),
+                    "tenant_id": doc.metadata.get("tenant_id", "unknown"),  # ADD tenant_id to source details
                     "content_preview": doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content,
                     "relevance_score": getattr(doc, 'score', None)  # If available
                 }

@@ -1,5 +1,5 @@
-# app/ingest.py
-from fastapi import APIRouter, HTTPException
+# app/routers/ingest.py
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
 import logging
 from typing import List, Optional
@@ -15,9 +15,24 @@ class IngestBody(BaseModel):
     user_id: Optional[str] = None
 
 @router.post("/ingest")
-async def ingest(body: IngestBody):
+async def ingest(
+    body: IngestBody,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_tenant_id: str = Header(None, alias="X-Tenant-ID"), 
+    x_user_role: str = Header(None, alias="X-User-Role"),
+    x_bot_id: str = Header(None, alias="X-Bot-ID")
+):
     try:
-        count = ingest_files(body.bot_id, body.paths, user_id=body.user_id)
+        # Use header values if provided, otherwise use body values
+        effective_user_id = x_user_id or body.user_id
+        effective_bot_id = x_bot_id or body.bot_id
+        
+        count = ingest_files(
+            bot_id=effective_bot_id, 
+            paths=body.paths, 
+            user_id=effective_user_id,
+            tenant_id=x_tenant_id  # Pass tenant_id to core function
+        )
         return {"ok": True, "chunks_added": count}
     except Exception as e:
         log.exception("ingest() failed for bot_id=%s", body.bot_id)
