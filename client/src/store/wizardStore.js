@@ -9,7 +9,15 @@ const LIMITS = {
 };
 
 const initial = {
-  steps: ["welcome", "basics", "knowledge", "responses", "preview", "deploy"],
+  steps: [
+    "welcome",
+    "basics",
+    "responses",
+    "register",
+    "knowledge",
+    "preview",
+    "deploy",
+  ],
   currentStepIndex: 0,
   values: {
     botName: "",

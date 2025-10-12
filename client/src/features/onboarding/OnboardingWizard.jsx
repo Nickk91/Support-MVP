@@ -11,12 +11,15 @@ import StepKnowledge from "./steps/StepKnowledge";
 import StepResponses from "./steps/StepResponses";
 import StepPreview from "./steps/StepPreview";
 import StepDeploy from "./steps/StepDeploy";
+import StepRegister from "./steps/StepRegister";
 
 const map = {
   welcome: StepWelcome,
   basics: StepBotBasics,
-  knowledge: StepKnowledge,
+
   responses: StepResponses,
+  register: StepRegister,
+  knowledge: StepKnowledge,
   preview: StepPreview,
   deploy: StepDeploy,
 };

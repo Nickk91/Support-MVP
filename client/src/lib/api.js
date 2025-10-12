@@ -3,8 +3,16 @@ import axios from "axios";
 
 const api = axios.create({
   baseURL: "/api", // Vite proxy -> http://localhost:4000
-  // ❌ do not set default Content-Type here
-  withCredentials: false,
+  withCredentials: false, // Keep this false for token auth
+});
+
+// Add request interceptor to include JWT token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("authToken");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 // Optional: response interceptor for errors
