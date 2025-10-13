@@ -14,11 +14,12 @@ import ragRoutes from "./routes/rag.js";
 
 async function main() {
   // Connect to Mongo if enabled
-  if (process.env.USE_MONGO === "1") {
-    await connectMongo(process.env.MONGODB_URI);
-    console.log("[mongo] connected");
-  }
+  // if (process.env.USE_MONGO === "1") {
+  //   await connectMongo(process.env.MONGODB_URI);
+  //   console.log("[mongo] connected");
+  // }
 
+  console.log("📁 Using JSON file system for data storage");
   // Ensure upload directory exists
   const uploadDir = process.env.UPLOAD_DIR || "uploads";
   await ensureUploadDir(uploadDir);
