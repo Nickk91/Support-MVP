@@ -1,92 +1,127 @@
 // server/src/controllers/botController.js
 import { Bot } from "../models/Bot.js";
 
-// Create bot
+// Create new bot
 export const createBot = async (req, res) => {
   try {
-    const payload = req.body || {};
-    const botName = String(payload.botName || "").trim();
+    const {
+      botName,
+      model,
+      personality,
+      systemMessage,
+      fallback,
+      escalation,
+      files,
+    } = req.body;
 
-    if (!botName) {
+    console.log("🤖 Creating bot for tenant:", req.user.tenantId);
+    console.log("📦 Bot data:", { botName, model, personality });
+
+    // Validation
+    if (!botName || !model) {
       return res.status(400).json({
         ok: false,
-        error: "validation_error",
-        message: "botName is required",
+        error: "missing_fields",
+        message: "Bot name and model are required",
       });
     }
 
+    // Create bot with tenant isolation
     const bot = await Bot.create({
       botName,
-      systemMessage: payload.systemMessage || "",
-      personality: payload.personality || "Friendly",
-      model: payload.model || "gpt-4o-mini",
-      fallback: payload.fallback || "",
-      escalation: payload.escalation || { enabled: false, email: "" },
-      files: payload.files || [],
+      model,
+      personality: personality || "Friendly",
+      systemMessage: systemMessage || "",
+      fallback: fallback || "",
+      escalation: escalation || { enabled: false, email: "" },
+      files: files || [],
       tenantId: req.user.tenantId,
       ownerId: req.user.userId,
     });
 
     res.status(201).json({
       ok: true,
-      bot: toApi(bot),
+      bot: {
+        id: bot._id,
+        botName: bot.botName,
+        model: bot.model,
+        personality: bot.personality,
+        systemMessage: bot.systemMessage,
+        fallback: bot.fallback,
+        escalation: bot.escalation,
+        files: bot.files,
+        createdAt: bot.createdAt,
+      },
     });
-  } catch (err) {
-    console.error("[bots:create] error", err);
+  } catch (error) {
+    console.error("[bot:create] error:", error);
+
+    // Handle duplicate bot names within tenant
+    if (error.code === 11000) {
+      return res.status(400).json({
+        ok: false,
+        error: "duplicate_bot",
+        message: "A bot with this name already exists in your workspace",
+      });
+    }
+
     res.status(500).json({
       ok: false,
       error: "server_error",
-      message: err.message,
+      message: "Failed to create bot",
     });
   }
 };
 
-// List bots
-export const listBots = async (req, res) => {
+// Get all bots for tenant
+export const getBots = async (req, res) => {
   try {
     const bots = await Bot.find({
       tenantId: req.user.tenantId,
     })
-      .sort({ createdAt: -1 })
-      .lean();
+      .select("-__v")
+      .sort({ createdAt: -1 });
 
     res.json({
       ok: true,
-      bots: bots.map(toApi),
+      bots,
     });
-  } catch (err) {
+  } catch (error) {
+    console.error("[bot:list] error:", error);
     res.status(500).json({
       ok: false,
       error: "server_error",
-      message: err.message,
+      message: "Failed to fetch bots",
     });
   }
 };
 
-// Get bot by ID
+// Get single bot
 export const getBot = async (req, res) => {
   try {
     const bot = await Bot.findOne({
       _id: req.params.id,
       tenantId: req.user.tenantId,
-    }).lean();
+    });
 
     if (!bot) {
       return res.status(404).json({
         ok: false,
-        error: "not_found",
+        error: "bot_not_found",
+        message: "Bot not found",
       });
     }
 
     res.json({
       ok: true,
-      bot: toApi(bot),
+      bot,
     });
-  } catch (err) {
+  } catch (error) {
+    console.error("[bot:get] error:", error);
     res.status(500).json({
       ok: false,
       error: "server_error",
-      message: err.message,
+      message: "Failed to fetch bot",
     });
   }
 };
@@ -94,32 +129,60 @@ export const getBot = async (req, res) => {
 // Update bot
 export const updateBot = async (req, res) => {
   try {
+    const {
+      botName,
+      model,
+      personality,
+      systemMessage,
+      fallback,
+      escalation,
+      files,
+    } = req.body;
+
     const bot = await Bot.findOneAndUpdate(
       {
         _id: req.params.id,
         tenantId: req.user.tenantId,
-        ownerId: req.user.userId,
       },
-      { $set: req.body },
+      {
+        botName,
+        model,
+        personality,
+        systemMessage,
+        fallback,
+        escalation,
+        files,
+      },
       { new: true, runValidators: true }
     );
 
     if (!bot) {
       return res.status(404).json({
         ok: false,
-        error: "not_found",
+        error: "bot_not_found",
+        message: "Bot not found",
       });
     }
 
     res.json({
       ok: true,
-      bot: toApi(bot),
+      bot,
     });
-  } catch (err) {
+  } catch (error) {
+    console.error("[bot:update] error:", error);
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        ok: false,
+        error: "duplicate_bot",
+        message: "A bot with this name already exists",
+      });
+    }
+
     res.status(500).json({
       ok: false,
       error: "server_error",
-      message: err.message,
+      message: "Failed to update bot",
     });
   }
 };
@@ -130,13 +193,13 @@ export const deleteBot = async (req, res) => {
     const bot = await Bot.findOneAndDelete({
       _id: req.params.id,
       tenantId: req.user.tenantId,
-      ownerId: req.user.userId,
     });
 
     if (!bot) {
       return res.status(404).json({
         ok: false,
-        error: "not_found",
+        error: "bot_not_found",
+        message: "Bot not found",
       });
     }
 
@@ -144,28 +207,12 @@ export const deleteBot = async (req, res) => {
       ok: true,
       message: "Bot deleted successfully",
     });
-  } catch (err) {
+  } catch (error) {
+    console.error("[bot:delete] error:", error);
     res.status(500).json({
       ok: false,
       error: "server_error",
-      message: err.message,
+      message: "Failed to delete bot",
     });
   }
 };
-
-// Helper function
-function toApi(doc) {
-  return {
-    id: String(doc._id),
-    createdAt: doc.createdAt?.toISOString?.() || doc.createdAt,
-    botName: doc.botName,
-    systemMessage: doc.systemMessage ?? "",
-    personality: doc.personality ?? "Friendly",
-    model: doc.model,
-    fallback: doc.fallback ?? "",
-    escalation: doc.escalation ?? { enabled: false, email: "" },
-    files: doc.files ?? [],
-    tenantId: doc.tenantId,
-    ownerId: doc.ownerId,
-  };
-}

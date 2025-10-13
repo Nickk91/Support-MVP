@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import SuccessSplash from "@/components/ui/SuccessSplash/SuccessSplash";
 import api from "@/lib/api";
+import { RocketLaunchIcon } from "@heroicons/react/24/outline";
 
 export default function StepDeploy() {
   const { values, prev } = useWizardStore();
@@ -15,7 +16,9 @@ export default function StepDeploy() {
   const [error, setError] = useState("");
   const [botInfo, setBotInfo] = useState(null);
 
-  // Prefer an ID-based snippet once the bot is created; otherwise fall back to name.
+  // Check if user is authenticated
+  const isAuthenticated = !!localStorage.getItem("authToken");
+
   const snippet = useMemo(() => {
     if (botInfo?.id) {
       return `<script src="https://cdn.ragmate.io/widget.js" data-bot-id="${botInfo.id}"></script>`;
@@ -34,51 +37,78 @@ export default function StepDeploy() {
     }
   };
 
-  async function createBot(payload) {
+  const createBot = async (payload) => {
     const { data } = await api.post("/bots", payload);
-    return data; // { ok: true, bot: {...} }
-  }
+    return data;
+  };
 
   const handleDeploy = async () => {
     if (isDeploying) return;
+
+    if (!isAuthenticated) {
+      setError("Please create an account before deploying your bot");
+      return;
+    }
+
     setIsDeploying(true);
     setError("");
 
     try {
-      // Only send what the backend cares about (align with server's bots route)
       const payload = {
         botName: values.botName,
         model: values.model,
         personality: values.personality,
+        systemMessage: values.systemMessage,
         fallback: values.fallback,
         escalation: values.escalation,
-        files: values.uploadedFiles || [], // from StepKnowledge
+        files: values.uploadedFiles || [],
       };
 
-      const json = await createBot(payload);
-      if (!json?.ok || !json?.bot) {
-        throw new Error(json?.message || "Bot creation failed");
+      console.log("🚀 Deploying bot with payload:", payload);
+
+      const data = await createBot(payload);
+
+      if (!data?.ok || !data?.bot) {
+        throw new Error(data?.message || "Bot creation failed");
       }
 
-      setBotInfo(json.bot);
+      setBotInfo(data.bot);
 
-      // small delight delay then splash
+      // Success animation
       setTimeout(() => {
         setIsDeploying(false);
         setShowSplash(true);
       }, 300);
-    } catch (e) {
+    } catch (err) {
+      console.error("❌ Deployment failed:", err);
       setIsDeploying(false);
-      setError(e.message || "Failed to deploy");
+      setError(err.message || "Failed to deploy bot. Please try again.");
     }
   };
 
   return (
     <>
-      <h3 className="text-lg font-semibold">🚀 Deploy</h3>
-      <p className="text-sm text-muted-foreground">
-        Paste this snippet into your site’s{" "}
-        <code className="font-mono">&lt;body&gt;</code>:
+      <div className="flex items-center justify-center mb-4">
+        <RocketLaunchIcon className="h-8 w-8 text-green-600" />
+      </div>
+
+      <h3 className="text-lg font-semibold text-center mb-4">
+        Deploy Your AI Assistant
+      </h3>
+
+      {!isAuthenticated && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+          <p className="text-sm text-yellow-800">
+            <strong>Note:</strong> You need to create an account to deploy your
+            bot and get the embed code.
+          </p>
+        </div>
+      )}
+
+      <p className="text-sm text-muted-foreground mb-4 text-center">
+        Paste this snippet into your website's{" "}
+        <code className="font-mono bg-muted px-1 rounded">&lt;body&gt;</code>{" "}
+        tag:
       </p>
 
       <pre className="mt-2 max-w-full overflow-x-auto rounded-lg border bg-black p-3 text-green-400 text-sm">
@@ -86,31 +116,49 @@ export default function StepDeploy() {
       </pre>
 
       {botInfo && (
-        <div className="mt-2 text-sm text-muted-foreground">
-          Deployed bot <span className="font-mono">{botInfo.id}</span> •{" "}
-          {botInfo.model}
+        <div className="mt-2 text-sm text-muted-foreground text-center">
+          Deployed bot{" "}
+          <span className="font-mono bg-muted px-1 rounded">{botInfo.id}</span>{" "}
+          • {botInfo.model}
         </div>
       )}
 
-      {error && <div className="mt-2 text-sm text-destructive">{error}</div>}
+      {error && (
+        <div className="mt-2 text-sm text-destructive bg-destructive/10 p-2 rounded text-center">
+          {error}
+        </div>
+      )}
 
       <StepActions>
         <Button variant="outline" onClick={prev} disabled={isDeploying}>
           Back
         </Button>
         <Button variant="outline" onClick={handleCopy} disabled={isDeploying}>
-          {copied ? "Copied!" : "Copy"}
+          {copied ? "Copied!" : "Copy Code"}
         </Button>
-        <Button onClick={handleDeploy} disabled={isDeploying}>
-          {isDeploying ? "Deploying…" : "Deploy Bot"}
+        <Button
+          onClick={handleDeploy}
+          disabled={isDeploying || !isAuthenticated}
+          className="flex items-center gap-2"
+        >
+          {isDeploying ? (
+            <>
+              <span className="animate-spin">⏳</span>
+              Deploying…
+            </>
+          ) : (
+            <>
+              <RocketLaunchIcon className="h-4 w-4" />
+              Deploy Bot
+            </>
+          )}
         </Button>
       </StepActions>
 
-      <p className="mt-3 text-sm text-muted-foreground">
-        Or connect: Slack · Teams · WhatsApp
+      <p className="mt-3 text-sm text-muted-foreground text-center">
+        Additional integrations: Slack • Teams • WhatsApp (Coming Soon)
       </p>
 
-      {/* ⚡ Success splash (lightning + “It’s alive!”) */}
       <SuccessSplash
         show={showSplash}
         onComplete={() => setShowSplash(false)}

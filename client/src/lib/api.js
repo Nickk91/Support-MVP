@@ -1,9 +1,9 @@
-// client/src/lib/api.js
+// src/lib/api.js
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "/api", // Vite proxy -> http://localhost:4000
-  withCredentials: false, // Keep this false for token auth
+  baseURL: "http://localhost:4000/api", // Direct to your Node.js server
+  withCredentials: false,
 });
 
 // Add request interceptor to include JWT token
@@ -15,12 +15,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Optional: response interceptor for errors
+// Enhanced response interceptor for better error handling
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    console.error("[API ERROR]", err.response?.data || err.message);
-    return Promise.reject(err);
+    const error = err.response?.data || { message: err.message };
+
+    // Auto-logout on 401 Unauthorized
+    if (err.response?.status === 401) {
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("user");
+      console.warn("🔄 Session expired, redirecting to login");
+      // Optional: redirect to login page
+      // window.location.href = '/login';
+    }
+
+    console.error("[API ERROR]", error);
+    return Promise.reject(error);
   }
 );
 

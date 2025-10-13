@@ -37,14 +37,22 @@ const BotSchema = new mongoose.Schema(
     escalation: { type: EscalationSchema, default: () => ({}) },
     files: { type: [FileSchema], default: [] },
 
-    // Multi-tenant fields - ADD THESE:
-    tenantId: { type: String, required: true, index: true },
-    ownerId: { type: String, required: true, index: true },
+    // Multi-tenant fields
+    tenantId: {
+      type: String,
+      required: true,
+      index: true, // ✅ Keep this - it's not marked as unique
+    },
+    ownerId: {
+      type: String,
+      required: true,
+      index: true, // ✅ Keep this - it's not marked as unique
+    },
   },
   { timestamps: true }
 );
 
-// Compound index for tenant isolation - ADD THIS:
+// ✅ Keep this compound index - it's not a duplicate
 BotSchema.index({ tenantId: 1, botName: 1 }, { unique: true });
 
 export const Bot = mongoose.models.Bot || mongoose.model("Bot", BotSchema);

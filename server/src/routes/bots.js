@@ -1,16 +1,23 @@
-// server/src/routes/auth.js
+// server/src/routes/bots.js
 import { Router } from "express";
-import {
-  register,
-  login,
-  getCurrentUser,
-} from "../controllers/authController.js";
 import { authenticateToken } from "../middleware/auth.js";
+import {
+  createBot,
+  getBots,
+  getBot,
+  updateBot,
+  deleteBot,
+} from "../controllers/botController.js";
 
 const router = Router();
 
-router.post("/register", register);
-router.post("/login", login);
-router.get("/me", authenticateToken, getCurrentUser);
+// All bot routes require authentication
+router.use(authenticateToken);
+
+router.post("/", createBot);
+router.get("/", getBots);
+router.get("/:id", getBot);
+router.put("/:id", updateBot);
+router.delete("/:id", deleteBot);
 
 export default router;

@@ -24,10 +24,7 @@ export default function StepRegister() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Get initial user data from store
   const userData = values.user || {};
-
-  // Initialize local form data with store values - ONLY ONCE
   const [formData, setFormData] = useState(() => ({
     email: userData.email || "",
     password: userData.password || "",
@@ -36,21 +33,9 @@ export default function StepRegister() {
     companyName: userData.companyName || "",
   }));
 
-  // Update store only when form data changes AND user navigates away
-  const updateFormData = (field, value) => {
-    const newFormData = { ...formData, [field]: value };
-    setFormData(newFormData);
-
-    // Validate field in real-time
-    if (!isLogin) {
-      validateField("register", field);
-    }
-  };
-
-  // Save to store when component unmounts or when moving to next step
+  // Update store when navigating away
   useEffect(() => {
     return () => {
-      // This runs when component unmounts (user navigates away)
       updateUser(formData);
     };
   }, [formData, updateUser]);
@@ -84,42 +69,70 @@ export default function StepRegister() {
             firstName: formData.firstName,
             lastName: formData.lastName,
             companyName: formData.companyName,
-            botName: values.botName,
+            // Include bot configuration for context
+            botConfig: {
+              botName: values.botName,
+              model: values.model,
+              personality: values.personality,
+            },
           };
 
-      console.log("🔐 Sending auth payload:", payload);
+      console.log("🔐 Sending auth request to:", endpoint);
+      console.log("📦 Payload:", payload);
 
       const { data } = await api.post(endpoint, payload);
 
-      // Store token and set auth status
+      if (!data.ok) {
+        throw new Error(data.message || "Authentication failed");
+      }
+
+      // Store token and user data
       localStorage.setItem("authToken", data.access_token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      // 🆕 Update store authentication status
+      // Update store authentication status
       setAuthenticated(true);
 
-      console.log("✅ Auth successful, user logged in");
+      console.log("✅ Auth successful:", data.user);
 
       // Continue to knowledge base
       next();
     } catch (err) {
-      console.error("❌ Auth failed:", err.response?.data);
-      setError(err.response?.data?.message || "Authentication failed");
+      console.error("❌ Auth failed:", err);
+
+      // Handle different error types
+      if (err.error === "email_exists") {
+        setError(
+          "An account with this email already exists. Please sign in instead."
+        );
+        setIsLogin(true); // Auto-switch to login
+      } else if (err.error === "invalid_credentials") {
+        setError("Invalid email or password. Please try again.");
+      } else if (err.message) {
+        setError(err.message);
+      } else {
+        setError(
+          "Authentication failed. Please check your connection and try again."
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleModeSwitch = () => {
-    // Save current form data before switching modes
-    updateUser(formData);
+  const updateFormData = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (!isLogin) {
+      validateField("register", field);
+    }
+  };
 
+  const handleModeSwitch = () => {
+    updateUser(formData);
     setIsLogin(!isLogin);
     setError("");
 
-    // Clear validation errors when switching modes
     if (!isLogin) {
-      // Clear register validation errors when switching to login
       Object.keys(formData).forEach((field) => {
         validateField("register", field);
       });
@@ -297,7 +310,6 @@ export default function StepRegister() {
         <Button
           variant="outline"
           onClick={() => {
-            // Save form data before skipping
             updateUser(formData);
             next();
           }}

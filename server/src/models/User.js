@@ -6,9 +6,10 @@ const UserSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true,
+      unique: true, // ✅ Only this - creates the index
       lowercase: true,
       trim: true,
+      // ❌ No index: true here
     },
     passwordHash: { type: String, required: true },
     firstName: { type: String, required: true, trim: true },
@@ -23,7 +24,8 @@ const UserSchema = new mongoose.Schema(
     tenantId: {
       type: String,
       required: true,
-      unique: true,
+      unique: true, // ✅ Only this - creates the index
+      // ❌ No index: true here
     },
     plan: {
       type: String,
@@ -36,8 +38,6 @@ const UserSchema = new mongoose.Schema(
   }
 );
 
-// Index for faster queries
-UserSchema.index({ email: 1 });
-UserSchema.index({ tenantId: 1 });
+// ❌ No additional schema.index() calls for email or tenantId
 
 export const User = mongoose.models.User || mongoose.model("User", UserSchema);
