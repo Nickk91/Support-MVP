@@ -16,7 +16,6 @@ const initial = {
   values: {
     // Bot configuration
     botName: "",
-    personality: "Friendly",
     systemMessage: "",
     model: "gpt-4o-mini",
     fallback: "",

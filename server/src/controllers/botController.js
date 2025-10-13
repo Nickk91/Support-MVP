@@ -6,8 +6,19 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Path to bots JSON file
+// Path to JSON files
 const BOTS_FILE = path.join(__dirname, "../../data/bots/bots.json");
+const USERS_FILE = path.join(__dirname, "../../data/users/users.json"); // 🆕 Added
+
+// Helper function to read users from JSON
+async function readUsers() {
+  try {
+    const data = await fs.readFile(USERS_FILE, "utf8");
+    return JSON.parse(data);
+  } catch (error) {
+    return { users: [], lastId: 0 };
+  }
+}
 
 // Helper function to read bots from JSON
 async function readBots() {
@@ -15,7 +26,6 @@ async function readBots() {
     const data = await fs.readFile(BOTS_FILE, "utf8");
     return JSON.parse(data);
   } catch (error) {
-    // If file doesn't exist, return default structure
     return { bots: [], lastId: 0 };
   }
 }
@@ -28,19 +38,11 @@ async function writeBots(botsData) {
 // Create new bot
 export const createBot = async (req, res) => {
   try {
-    const {
-      botName,
-      model,
-      personality,
-      systemMessage,
-      fallback,
-      escalation,
-      files,
-    } = req.body;
+    const { botName, model, systemMessage, fallback, escalation, files } =
+      req.body;
 
     console.log("🤖 Creating bot for tenant:", req.user.tenantId);
     console.log("👤 User ID from token:", req.user.userId);
-    console.log("📦 Bot data:", { botName, model, personality });
 
     // Validation
     if (!botName || !model) {
@@ -51,11 +53,24 @@ export const createBot = async (req, res) => {
       });
     }
 
+    // 🆕 FIX: Read users data to verify user exists
+    const usersData = await readUsers();
+    console.log("📋 Current users in JSON:", usersData.users.length);
+
+    // Check if user exists in JSON file
+    const user = usersData.users.find((u) => u.id === req.user.userId);
+    if (!user) {
+      console.error("❌ User not found in JSON file:", req.user.userId);
+      return res.status(400).json({
+        ok: false,
+        error: "user_not_found",
+        message: "User not found. Please register again.",
+      });
+    }
+
     // Read existing bots
     const botsData = await readBots();
-
     console.log("📋 Current bots in JSON:", botsData.bots.length);
-    console.log("📋 Current users in JSON:", usersData.users.length);
 
     // Check for duplicate bot name within tenant
     const duplicateBot = botsData.bots.find(
@@ -77,7 +92,6 @@ export const createBot = async (req, res) => {
       id: botId,
       botName,
       model,
-      personality: personality || "Friendly",
       systemMessage: systemMessage || "",
       fallback: fallback || "",
       escalation: escalation || { enabled: false, email: "" },
@@ -107,7 +121,6 @@ export const createBot = async (req, res) => {
         id: newBot.id,
         botName: newBot.botName,
         model: newBot.model,
-        personality: newBot.personality,
         systemMessage: newBot.systemMessage,
         fallback: newBot.fallback,
         escalation: newBot.escalation,
@@ -180,15 +193,8 @@ export const getBot = async (req, res) => {
 // Update bot
 export const updateBot = async (req, res) => {
   try {
-    const {
-      botName,
-      model,
-      personality,
-      systemMessage,
-      fallback,
-      escalation,
-      files,
-    } = req.body;
+    const { botName, model, systemMessage, fallback, escalation, files } =
+      req.body;
 
     const botsData = await readBots();
     const botIndex = botsData.bots.findIndex(
@@ -224,7 +230,6 @@ export const updateBot = async (req, res) => {
       ...botsData.bots[botIndex],
       botName,
       model,
-      personality,
       systemMessage,
       fallback,
       escalation,

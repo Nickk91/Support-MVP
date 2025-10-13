@@ -73,7 +73,6 @@ export default function StepRegister() {
             botConfig: {
               botName: values.botName,
               model: values.model,
-              personality: values.personality,
             },
           };
 

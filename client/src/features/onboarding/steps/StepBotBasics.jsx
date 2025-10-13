@@ -63,28 +63,6 @@ export default function StepBotBasics() {
             placeholder='e.g., "You are a nice AI bot that helps users figure out what to eat in one short sentence."'
             rows={4}
           />
-          <p className="text-xs text-muted-foreground">
-            This defines the bot’s personality and behavior. Prefer this over
-            the Personality dropdown.
-          </p>
-        </div>
-
-        {/* Personality (optional / legacy) */}
-        <div className="grid gap-1">
-          <Label htmlFor="personality">Personality (optional)</Label>
-          <Select
-            value={values.personality}
-            onValueChange={(val) => update({ personality: val })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Choose a personality" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Friendly">Friendly</SelectItem>
-              <SelectItem value="Professional">Professional</SelectItem>
-              <SelectItem value="Technical">Technical</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Model */}

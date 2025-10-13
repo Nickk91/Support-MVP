@@ -23,11 +23,6 @@ const BotSchema = new mongoose.Schema(
   {
     botName: { type: String, required: true, trim: true, maxlength: 50 },
     systemMessage: { type: String, default: "", maxlength: 2000 },
-    personality: {
-      type: String,
-      enum: ["Friendly", "Professional", "Technical"],
-      default: "Friendly",
-    },
     model: {
       type: String,
       required: true,
