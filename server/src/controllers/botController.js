@@ -53,7 +53,7 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // 🆕 FIX: Read users data to verify user exists
+    // Read users data to verify user exists
     const usersData = await readUsers();
     console.log("📋 Current users in JSON:", usersData.users.length);
 
@@ -109,11 +109,49 @@ export const createBot = async (req, res) => {
     // Write back to file
     await writeBots(botsData);
 
-    console.log("✅ Bot created:", {
+    console.log("✅ Bot created in JSON:", {
       id: botId,
       botName,
       tenantId: req.user.tenantId,
     });
+
+    // 🆕 PYTHON RAG INTEGRATION
+    let pythonRagStatus = "disconnected";
+    let pythonRagError = null;
+
+    try {
+      console.log("🎯 Attempting to register bot with Python RAG service...");
+
+      const pythonResult = await pythonService.createBot({
+        botId: newBot.id,
+        botName: newBot.botName,
+        systemMessage: newBot.systemMessage,
+        model: newBot.model,
+        fallback: newBot.fallback,
+        tenantId: newBot.tenantId,
+        ownerId: newBot.ownerId,
+      });
+
+      if (pythonResult.ok) {
+        pythonRagStatus = "connected";
+        console.log("✅ Bot successfully registered with Python RAG service");
+      } else {
+        pythonRagStatus = "failed";
+        pythonRagError = pythonResult.error;
+        console.warn(
+          "⚠️ Bot created but Python RAG registration failed:",
+          pythonResult.error
+        );
+      }
+    } catch (pythonError) {
+      pythonRagStatus = "error";
+      pythonRagError = pythonError.message;
+      console.warn(
+        "⚠️ Bot created but Python RAG service unavailable:",
+        pythonError.message
+      );
+      // Continue - bot is still usable, just without RAG features initially
+    }
 
     res.status(201).json({
       ok: true,
@@ -126,6 +164,16 @@ export const createBot = async (req, res) => {
         escalation: newBot.escalation,
         files: newBot.files,
         createdAt: newBot.createdAt,
+        // 🆕 Add Python RAG integration status
+        ragStatus: pythonRagStatus,
+        ragError: pythonRagError,
+      },
+      // 🆕 Include integration status in response
+      integration: {
+        pythonRag: {
+          status: pythonRagStatus,
+          ...(pythonRagError && { error: pythonRagError }),
+        },
       },
     });
   } catch (error) {

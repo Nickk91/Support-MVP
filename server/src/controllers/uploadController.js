@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
 import { nanoid } from "nanoid";
+import pythonService from "../../services/pythonService.js";
 
 // Configure multer (moved from routes)
 const UPLOAD_DIR = path.resolve(
@@ -52,7 +53,33 @@ export const uploadFiles = async (req, res) => {
       mimetype: f.mimetype,
       uploadedBy: req.user.userId,
       tenantId: req.user.tenantId,
+      path: f.path, // 🆕 Add file path for Python service
     }));
+
+    // 🆕 INTEGRATION: Send files to Python RAG for processing
+    const botId = req.body.botId; // You'll need to send botId from frontend
+    if (botId) {
+      try {
+        const pythonResult = await pythonService.ingestFiles(botId, req.files);
+        if (pythonResult.ok) {
+          console.log("✅ Files processed by Python RAG");
+          // Mark files as processed in response
+          files.forEach((file) => (file.ragProcessed = true));
+        } else {
+          console.warn(
+            "⚠️ Files uploaded but Python RAG processing failed:",
+            pythonResult.error
+          );
+          files.forEach((file) => (file.ragProcessed = false));
+        }
+      } catch (pythonError) {
+        console.warn(
+          "⚠️ Files uploaded but Python RAG unavailable:",
+          pythonError.message
+        );
+        files.forEach((file) => (file.ragProcessed = false));
+      }
+    }
 
     return res.json({ ok: true, files });
   } catch (error) {

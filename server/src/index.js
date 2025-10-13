@@ -39,6 +39,30 @@ async function main() {
     res.send("ok");
   });
 
+  app.get("/api/python-health", async (req, res) => {
+    try {
+      const pythonService = await import("../services/pythonService.js");
+      const health = await pythonService.default.healthCheck();
+
+      res.json({
+        ok: true,
+        pythonService: {
+          status: health.ok ? "connected" : "disconnected",
+          baseURL: process.env.PYTHON_RAG_URL || "http://localhost:8000",
+          details: health.ok ? health.data : health.error,
+        },
+      });
+    } catch (error) {
+      res.json({
+        ok: false,
+        pythonService: {
+          status: "error",
+          error: error.message,
+        },
+      });
+    }
+  });
+
   // Optionally serve uploaded files (useful for previews)
   app.use("/uploads", express.static(path.resolve(process.cwd(), uploadDir)));
 
