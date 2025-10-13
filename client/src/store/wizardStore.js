@@ -1,12 +1,6 @@
 // src/store/wizardStore.js
 import { create } from "zustand";
-
-const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
-const LIMITS = {
-  botNameMax: 50,
-  systemMessageMax: 2000,
-  fallbackMax: 200,
-};
+import { validateStep, validateField } from "@/utils/validation";
 
 const initial = {
   steps: [
@@ -20,38 +14,68 @@ const initial = {
   ],
   currentStepIndex: 0,
   values: {
+    // Bot configuration
     botName: "",
     personality: "Friendly",
-    systemMessage: "", // ✅ now validated below
+    systemMessage: "",
     model: "gpt-4o-mini",
     fallback: "",
     escalation: { enabled: false, email: "" },
+
+    // Registration fields
+    user: {
+      email: "",
+      password: "",
+      firstName: "",
+      lastName: "",
+      companyName: "",
+    },
+
+    // File uploads
+    uploadedFiles: [],
   },
-  errors: {}, // e.g., { responses: { fallback: "...", escalationEmail: "..." }, basics: {...} }
+  errors: {},
 };
 
 export const useWizardStore = create((set, get) => ({
-  // Start with a deep clone to avoid accidental shared refs
   ...JSON.parse(JSON.stringify(initial)),
 
   progress: () =>
     Math.round(((get().currentStepIndex + 1) / get().steps.length) * 100),
 
-  update: (patch) => set((s) => ({ values: { ...s.values, ...patch } })),
+  update: (patch) =>
+    set((s) => ({
+      values: { ...s.values, ...patch },
+    })),
+
+  updateUser: (userPatch) =>
+    set((s) => ({
+      values: {
+        ...s.values,
+        user: {
+          ...s.values.user,
+          ...userPatch,
+        },
+      },
+    })),
 
   next: () =>
     set((s) => ({
       currentStepIndex: Math.min(s.currentStepIndex + 1, s.steps.length - 1),
     })),
+
   prev: () =>
     set((s) => ({
       currentStepIndex: Math.max(s.currentStepIndex - 1, 0),
     })),
-  reset: () => set(() => JSON.parse(JSON.stringify(initial))), // ✅ deep reset
+
+  reset: () => set(() => JSON.parse(JSON.stringify(initial))),
 
   hydrate: (saved) =>
     set((s) => {
       const savedVals = saved?.values || {};
+      const savedUser = savedVals.user || {};
+
       return {
         ...s,
         ...(typeof saved?.currentStepIndex === "number"
@@ -64,96 +88,31 @@ export const useWizardStore = create((set, get) => ({
             ...s.values.escalation,
             ...(savedVals.escalation || {}),
           },
+          user: {
+            email: savedUser.email || s.values.user.email,
+            password: savedUser.password || s.values.user.password,
+            firstName: savedUser.firstName || s.values.user.firstName,
+            lastName: savedUser.lastName || s.values.user.lastName,
+            companyName: savedUser.companyName || s.values.user.companyName,
+          },
+          uploadedFiles: savedVals.uploadedFiles || [],
         },
       };
     }),
 
-  // ---------- Step-level validation (used on Next) ----------
+  // Step-level validation
   validateStep: (stepKey) => {
-    const v = get().values;
-    const stepErrors = {};
-
-    if (stepKey === "responses") {
-      if (!v.fallback || v.fallback.trim().length === 0) {
-        stepErrors.fallback = "Fallback message is required.";
-      } else if (v.fallback.length > LIMITS.fallbackMax) {
-        stepErrors.fallback = `Keep fallback under ${LIMITS.fallbackMax} characters.`;
-      }
-      const esc = v.escalation || {};
-      if (esc.enabled) {
-        if (!esc.email) {
-          stepErrors.escalationEmail =
-            "Escalation email is required when escalation is enabled.";
-        } else if (!emailRe.test(esc.email)) {
-          stepErrors.escalationEmail = "Please enter a valid email address.";
-        }
-      }
-    }
-
-    if (stepKey === "basics") {
-      if (!v.botName || v.botName.trim().length === 0) {
-        stepErrors.botName = "Bot name is required.";
-      } else if (v.botName.length > LIMITS.botNameMax) {
-        stepErrors.botName = `Keep bot name under ${LIMITS.botNameMax} characters.`;
-      }
-      if (!v.model) {
-        stepErrors.model = "Please select a model.";
-      }
-      // ✅ systemMessage is optional but capped
-      if (v.systemMessage && v.systemMessage.length > LIMITS.systemMessageMax) {
-        stepErrors.systemMessage = `Keep system message under ${LIMITS.systemMessageMax} characters.`;
-      }
-    }
+    const values = get().values;
+    const stepErrors = validateStep(stepKey, values);
 
     set((s) => ({ errors: { ...s.errors, [stepKey]: stepErrors } }));
     return Object.keys(stepErrors).length === 0;
   },
 
-  // ---------- Field-level live validation ----------
+  // Field-level validation
   validateField: (stepKey, field) => {
-    const v = get().values;
-    let message = "";
-
-    if (stepKey === "responses") {
-      if (field === "fallback") {
-        if (!v.fallback || v.fallback.trim().length === 0) {
-          message = "Fallback message is required.";
-        } else if (v.fallback.length > LIMITS.fallbackMax) {
-          message = `Keep fallback under ${LIMITS.fallbackMax} characters.`;
-        }
-      }
-      if (field === "escalationEmail") {
-        const esc = v.escalation || {};
-        if (esc.enabled) {
-          if (!esc.email) message = "Escalation email is required.";
-          else if (!emailRe.test(esc.email))
-            message = "Please enter a valid email address.";
-        } else {
-          message = "";
-        }
-      }
-    }
-
-    if (stepKey === "basics") {
-      if (field === "botName") {
-        if (!v.botName || v.botName.trim().length === 0) {
-          message = "Bot name is required.";
-        } else if (v.botName.length > LIMITS.botNameMax) {
-          message = `Keep bot name under ${LIMITS.botNameMax} characters.`;
-        }
-      }
-      if (field === "model") {
-        if (!v.model) message = "Please select a model.";
-      }
-      if (field === "systemMessage") {
-        if (
-          v.systemMessage &&
-          v.systemMessage.length > LIMITS.systemMessageMax
-        ) {
-          message = `Keep system message under ${LIMITS.systemMessageMax} characters.`;
-        }
-      }
-    }
+    const values = get().values;
+    const message = validateField(stepKey, field, values);
 
     set((s) => ({
       errors: {
@@ -169,4 +128,18 @@ export const useWizardStore = create((set, get) => ({
       delete step[field];
       return { errors: { ...s.errors, [stepKey]: step } };
     }),
+
+  clearRegistration: () =>
+    set((s) => ({
+      values: {
+        ...s.values,
+        user: {
+          email: "",
+          password: "",
+          firstName: "",
+          lastName: "",
+          companyName: "",
+        },
+      },
+    })),
 }));

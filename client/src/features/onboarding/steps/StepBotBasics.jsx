@@ -12,6 +12,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { Bot } from "lucide-react";
 
 export default function StepBotBasics() {
   const { values, update, next, prev, validateStep, validateField, errors } =
@@ -25,7 +26,9 @@ export default function StepBotBasics() {
 
   return (
     <>
-      <h3 className="mb-3 text-lg font-semibold">🤖 Bot Basics</h3>
+      <h3 className="mb-3 text-lg font-semibold flex items-center gap-2">
+        Bot Basics <Bot size={28} className="text-blue-600" />
+      </h3>
 
       <div className="grid gap-4">
         {/* Bot name */}

@@ -1,35 +1,78 @@
 // src/features/onboarding/steps/StepRegister.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWizardStore } from "../../../store/wizardStore";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import api from "@/lib/api";
+import { UserPlusIcon, KeyIcon } from "@heroicons/react/24/outline";
 
 export default function StepRegister() {
-  const { next, prev, values, update } = useWizardStore();
+  const {
+    next,
+    prev,
+    values,
+    updateUser,
+    validateStep,
+    validateField,
+    errors,
+  } = useWizardStore();
+
   const [isLogin, setIsLogin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    firstName: "", // 🆕 Added
-    lastName: "", // 🆕 Added
-    companyName: "", // 🆕 Changed from 'company' to 'companyName'
-  });
+  // Get initial user data from store
+  const userData = values.user || {};
+
+  // Initialize local form data with store values - ONLY ONCE
+  const [formData, setFormData] = useState(() => ({
+    email: userData.email || "",
+    password: userData.password || "",
+    firstName: userData.firstName || "",
+    lastName: userData.lastName || "",
+    companyName: userData.companyName || "",
+  }));
+
+  // Update store only when form data changes AND user navigates away
+  // Not on every keystroke to prevent infinite loops
+  const updateFormData = (field, value) => {
+    const newFormData = { ...formData, [field]: value };
+    setFormData(newFormData);
+
+    // Validate field in real-time
+    if (!isLogin) {
+      validateField("register", field);
+    }
+  };
+
+  // Save to store when component unmounts or when moving to next step
+  useEffect(() => {
+    return () => {
+      // This runs when component unmounts (user navigates away)
+      updateUser(formData);
+    };
+  }, [formData, updateUser]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
+    // Save current form data to store before submission
+    updateUser(formData);
+
+    // Validate form before submission
+    if (!isLogin && !validateStep("register")) {
+      setLoading(false);
+      setError("Please fix the validation errors above.");
+      return;
+    }
+
     try {
       const endpoint = isLogin ? "/auth/login" : "/auth/register";
 
-      // 🛠️ Fix: Use correct field names for backend
       const payload = isLogin
         ? {
             email: formData.email,
@@ -41,7 +84,7 @@ export default function StepRegister() {
             firstName: formData.firstName,
             lastName: formData.lastName,
             companyName: formData.companyName,
-            botName: values.botName, // Include bot config from wizard
+            botName: values.botName,
           };
 
       console.log("🔐 Sending auth payload:", payload);
@@ -64,17 +107,39 @@ export default function StepRegister() {
     }
   };
 
-  const updateFormData = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  const handleModeSwitch = () => {
+    // Save current form data before switching modes
+    updateUser(formData);
+
+    setIsLogin(!isLogin);
+    setError("");
+
+    // Clear validation errors when switching modes
+    if (!isLogin) {
+      // Clear register validation errors when switching to login
+      Object.keys(formData).forEach((field) => {
+        validateField("register", field);
+      });
+    }
   };
+
+  const registerErrors = errors?.register || {};
 
   return (
     <>
-      <h3 className="mb-3 text-lg font-semibold">
-        {isLogin ? "🔐 Login" : "🚀 Create Your Account"}
+      <div className="flex items-center justify-center mb-4">
+        {isLogin ? (
+          <KeyIcon className="h-8 w-8 text-blue-600" />
+        ) : (
+          <UserPlusIcon className="h-8 w-8 text-blue-600" />
+        )}
+      </div>
+
+      <h3 className="mb-3 text-lg font-semibold text-center">
+        {isLogin ? "Sign In to Your Account" : "Create Your Account"}
       </h3>
 
-      <p className="text-sm text-muted-foreground mb-4">
+      <p className="text-sm text-muted-foreground mb-4 text-center">
         {isLogin
           ? "Welcome back! Sign in to continue building your bot."
           : "Almost there! Create your account to upload documents and deploy your bot."}
@@ -88,9 +153,18 @@ export default function StepRegister() {
             type="email"
             value={formData.email}
             onChange={(e) => updateFormData("email", e.target.value)}
+            onBlur={() => !isLogin && validateField("register", "email")}
             placeholder="your@company.com"
             required
+            className={
+              registerErrors.email
+                ? "border-destructive focus-visible:ring-destructive"
+                : ""
+            }
           />
+          {registerErrors.email && (
+            <p className="text-sm text-destructive">{registerErrors.email}</p>
+          )}
         </div>
 
         <div className="grid gap-2">
@@ -100,15 +174,25 @@ export default function StepRegister() {
             type="password"
             value={formData.password}
             onChange={(e) => updateFormData("password", e.target.value)}
+            onBlur={() => !isLogin && validateField("register", "password")}
             placeholder="••••••••"
             required
-            minLength="8"
+            minLength="6"
+            className={
+              registerErrors.password
+                ? "border-destructive focus-visible:ring-destructive"
+                : ""
+            }
           />
+          {registerErrors.password && (
+            <p className="text-sm text-destructive">
+              {registerErrors.password}
+            </p>
+          )}
         </div>
 
         {!isLogin && (
           <>
-            {/* 🆕 First Name Field */}
             <div className="grid gap-2">
               <Label htmlFor="firstName">First Name</Label>
               <Input
@@ -116,12 +200,22 @@ export default function StepRegister() {
                 type="text"
                 value={formData.firstName}
                 onChange={(e) => updateFormData("firstName", e.target.value)}
+                onBlur={() => validateField("register", "firstName")}
                 placeholder="John"
                 required
+                className={
+                  registerErrors.firstName
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+                }
               />
+              {registerErrors.firstName && (
+                <p className="text-sm text-destructive">
+                  {registerErrors.firstName}
+                </p>
+              )}
             </div>
 
-            {/* 🆕 Last Name Field */}
             <div className="grid gap-2">
               <Label htmlFor="lastName">Last Name</Label>
               <Input
@@ -129,12 +223,22 @@ export default function StepRegister() {
                 type="text"
                 value={formData.lastName}
                 onChange={(e) => updateFormData("lastName", e.target.value)}
+                onBlur={() => validateField("register", "lastName")}
                 placeholder="Doe"
                 required
+                className={
+                  registerErrors.lastName
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+                }
               />
+              {registerErrors.lastName && (
+                <p className="text-sm text-destructive">
+                  {registerErrors.lastName}
+                </p>
+              )}
             </div>
 
-            {/* 🛠️ Fixed: companyName instead of company */}
             <div className="grid gap-2">
               <Label htmlFor="companyName">Company Name</Label>
               <Input
@@ -142,9 +246,20 @@ export default function StepRegister() {
                 type="text"
                 value={formData.companyName}
                 onChange={(e) => updateFormData("companyName", e.target.value)}
+                onBlur={() => validateField("register", "companyName")}
                 placeholder="Your Company Inc."
                 required
+                className={
+                  registerErrors.companyName
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+                }
               />
+              {registerErrors.companyName && (
+                <p className="text-sm text-destructive">
+                  {registerErrors.companyName}
+                </p>
+              )}
             </div>
           </>
         )}
@@ -163,10 +278,7 @@ export default function StepRegister() {
       <div className="text-center">
         <button
           type="button"
-          onClick={() => {
-            setIsLogin(!isLogin);
-            setError(""); // Clear errors when switching modes
-          }}
+          onClick={handleModeSwitch}
           className="text-sm text-muted-foreground hover:text-foreground"
         >
           {isLogin
@@ -181,7 +293,11 @@ export default function StepRegister() {
         </Button>
         <Button
           variant="outline"
-          onClick={next}
+          onClick={() => {
+            // Save form data before skipping
+            updateUser(formData);
+            next();
+          }}
           disabled={!localStorage.getItem("authToken")}
         >
           Skip for now
