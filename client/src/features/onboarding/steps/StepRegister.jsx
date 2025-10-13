@@ -17,6 +17,7 @@ export default function StepRegister() {
     validateStep,
     validateField,
     errors,
+    setAuthenticated,
   } = useWizardStore();
 
   const [isLogin, setIsLogin] = useState(false);
@@ -36,7 +37,6 @@ export default function StepRegister() {
   }));
 
   // Update store only when form data changes AND user navigates away
-  // Not on every keystroke to prevent infinite loops
   const updateFormData = (field, value) => {
     const newFormData = { ...formData, [field]: value };
     setFormData(newFormData);
@@ -91,11 +91,14 @@ export default function StepRegister() {
 
       const { data } = await api.post(endpoint, payload);
 
-      // Store token for future requests
+      // Store token and set auth status
       localStorage.setItem("authToken", data.access_token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      console.log("✅ Auth successful, token stored");
+      // 🆕 Update store authentication status
+      setAuthenticated(true);
+
+      console.log("✅ Auth successful, user logged in");
 
       // Continue to knowledge base
       next();

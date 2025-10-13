@@ -7,7 +7,7 @@ const initial = {
     "welcome",
     "basics",
     "responses",
-    "register",
+    "register", // This step will be skipped when logged in
     "knowledge",
     "preview",
     "deploy",
@@ -35,13 +35,17 @@ const initial = {
     uploadedFiles: [],
   },
   errors: {},
+  // 🆕 Add auth status
+  isAuthenticated: false,
 };
 
 export const useWizardStore = create((set, get) => ({
   ...JSON.parse(JSON.stringify(initial)),
 
-  progress: () =>
-    Math.round(((get().currentStepIndex + 1) / get().steps.length) * 100),
+  progress: () => {
+    const steps = get().steps;
+    return Math.round(((get().currentStepIndex + 1) / steps.length) * 100);
+  },
 
   update: (patch) =>
     set((s) => ({
@@ -59,15 +63,35 @@ export const useWizardStore = create((set, get) => ({
       },
     })),
 
+  // 🆕 Enhanced next method that skips register when authenticated
   next: () =>
-    set((s) => ({
-      currentStepIndex: Math.min(s.currentStepIndex + 1, s.steps.length - 1),
-    })),
+    set((s) => {
+      const nextIndex = s.currentStepIndex + 1;
+      let targetIndex = Math.min(nextIndex, s.steps.length - 1);
 
+      // Skip register step if user is authenticated
+      if (s.isAuthenticated && s.steps[targetIndex] === "register") {
+        targetIndex = Math.min(targetIndex + 1, s.steps.length - 1);
+        console.log("🔄 Skipping register step - user authenticated");
+      }
+
+      return { currentStepIndex: targetIndex };
+    }),
+
+  // 🆕 Enhanced prev method that skips register when authenticated
   prev: () =>
-    set((s) => ({
-      currentStepIndex: Math.max(s.currentStepIndex - 1, 0),
-    })),
+    set((s) => {
+      const prevIndex = s.currentStepIndex - 1;
+      let targetIndex = Math.max(prevIndex, 0);
+
+      // Skip register step if user is authenticated
+      if (s.isAuthenticated && s.steps[targetIndex] === "register") {
+        targetIndex = Math.max(targetIndex - 1, 0);
+        console.log("🔄 Skipping register step - user authenticated");
+      }
+
+      return { currentStepIndex: targetIndex };
+    }),
 
   reset: () => set(() => JSON.parse(JSON.stringify(initial))),
 
@@ -99,6 +123,9 @@ export const useWizardStore = create((set, get) => ({
         },
       };
     }),
+
+  // 🆕 Add auth actions
+  setAuthenticated: (status) => set({ isAuthenticated: status }),
 
   // Step-level validation
   validateStep: (stepKey) => {

@@ -16,7 +16,6 @@ import StepRegister from "./steps/StepRegister";
 const map = {
   welcome: StepWelcome,
   basics: StepBotBasics,
-
   responses: StepResponses,
   register: StepRegister,
   knowledge: StepKnowledge,
@@ -29,11 +28,39 @@ export default function OnboardingWizard() {
     steps,
     currentStepIndex,
     progress,
-    values, // <-- pull values from store
-    hydrate, // <-- new action
+    values,
+    hydrate,
+    setAuthenticated,
   } = useWizardStore();
 
-  const Step = map[steps[currentStepIndex]];
+  const stepKey = steps[currentStepIndex];
+  const Step = map[stepKey];
+
+  // 🆕 Check auth status on component mount
+  useEffect(() => {
+    const token = localStorage.getItem("authToken");
+    const user = localStorage.getItem("user");
+
+    if (token && user) {
+      setAuthenticated(true);
+      console.log("🔐 User is already authenticated");
+    }
+  }, [setAuthenticated]);
+
+  // 🆕 Skip to knowledge step if authenticated and on register
+  useEffect(() => {
+    const token = localStorage.getItem("authToken");
+    const currentStep = steps[currentStepIndex];
+
+    if (token && currentStep === "register") {
+      console.log("🔄 Skipping register step - user already authenticated");
+      // Use store method to navigate to knowledge step
+      const knowledgeIndex = steps.indexOf("knowledge");
+      if (knowledgeIndex > -1) {
+        useWizardStore.setState({ currentStepIndex: knowledgeIndex });
+      }
+    }
+  }, [currentStepIndex, steps]);
 
   // Save to localStorage whenever values/step changes
   useEffect(() => {
