@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 # UPDATE ingest_files to accept tenant_id
 def ingest_files(
     bot_id: str,
-    file_paths: List[str],
+    paths: List[str],  # ← CHANGE from file_paths to paths
     *,
     user_id: Optional[str] = None,
-    tenant_id: Optional[str] = None,  # ADD tenant_id parameter
+    tenant_id: Optional[str] = None,
     chunk_size: int = 800,
     chunk_overlap: int = 120,
 ) -> int:
-    # Load
-    docs = load_paths(file_paths)
+    # Load - update variable name here too
+    docs = load_paths(paths)
 
     # Split - Create splitter directly
     from langchain_text_splitters import RecursiveCharacterTextSplitter

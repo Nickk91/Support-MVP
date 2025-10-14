@@ -11,6 +11,7 @@ import { ensureUploadDir } from "./lib/fsutil.js";
 import { connectMongo } from "./lib/mongo.js";
 import authRoutes from "./routes/auth.js";
 import ragRoutes from "./routes/rag.js";
+import chatRoutes from "./routes/chat.js"; // This should work now
 
 async function main() {
   // Connect to Mongo if enabled
@@ -71,6 +72,7 @@ async function main() {
   app.use("/api/uploads", uploadsRoutes);
   app.use("/api/bots", botsRoutes);
   app.use("/api/rag", ragRoutes);
+  app.use("/api/chat", chatRoutes);
 
   // 404 handler
   app.use((req, res) => {

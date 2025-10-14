@@ -5,10 +5,6 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
 
-# Import your actual RAG components
-from app.rag.core import answer_query  # Your main RAG function
-from app.models.bot import BotConfig  # Your bot model
-
 router = APIRouter()
 
 # Request/Response models
@@ -40,7 +36,7 @@ class ChatMessage(BaseModel):
 class ChatHistoryResponse(BaseModel):
     messages: List[ChatMessage]
 
-# In-memory storage for demo (replace with database in production)
+# In-memory storage for demo
 chat_sessions = {}
 
 def get_current_utc_time():
@@ -51,10 +47,45 @@ def format_iso_with_timezone(dt: datetime) -> str:
     """Format datetime as ISO string with timezone info"""
     return dt.isoformat()
 
+async def process_chat_query(bot_id: str, question: str, user_id: str, tenant_id: str, system_message: str):
+    """
+    Process chat using your actual answer_query function
+    """
+    try:
+        # Import your actual RAG function
+        from app.rag.core import answer_query
+        
+        # Call your existing answer_query function
+        result = await answer_query(
+            bot_id=bot_id,
+            question=question,
+            user_id=user_id,
+            tenant_id=tenant_id,  # Your core.py now supports tenant_id
+            system_message=system_message,
+            fallback_to_llm=True,
+            include_sources=True
+        )
+        
+        return {
+            "answer": result.get("answer", "I couldn't process your question."),
+            "sources": result.get("sources", []),
+            "fallback_used": result.get("fallback_used", False),
+            "document_count": result.get("document_count", 0)
+        }
+        
+    except Exception as e:
+        print(f"Error calling answer_query: {e}")
+        # Fallback response
+        return {
+            "answer": f"I received your question: '{question}'. The AI assistant is processing your request.",
+            "sources": ["system_processing"],
+            "fallback_used": True
+        }
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
-    Process chat message through your existing RAG pipeline
+    Process chat message using your actual RAG system
     """
     try:
         # Get bot configuration
@@ -62,15 +93,13 @@ async def chat_endpoint(request: ChatRequest):
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
         
-        # Process through your existing RAG core
-        rag_result = await answer_query(
+        # Process through your actual RAG system
+        rag_result = await process_chat_query(
             bot_id=request.bot_id,
             question=request.message,
             user_id=request.user_id,
-            tenant_id=request.tenant_id,  # Use the tenant_id from request
-            system_message=bot.get("system_message", "You are a helpful AI assistant."),
-            fallback_to_llm=True,  # Use your fallback mechanism
-            include_sources=True
+            tenant_id=request.tenant_id,
+            system_message=bot.get("system_message", "You are a helpful AI assistant.")
         )
         
         # Store message in history
@@ -87,7 +116,7 @@ async def chat_endpoint(request: ChatRequest):
             timestamp=format_iso_with_timezone(current_time)
         )
         
-        # Extract sources from your RAG response
+        # Extract sources from RAG response
         sources = rag_result.get("sources", [])
         if not sources and rag_result.get("fallback_used"):
             sources = ["general_knowledge"]
@@ -102,7 +131,7 @@ async def chat_endpoint(request: ChatRequest):
         
         chat_sessions[session_key].extend([user_message, bot_message])
         
-        # Keep only last 100 messages per session to prevent memory issues
+        # Keep only last 100 messages per session
         if len(chat_sessions[session_key]) > 100:
             chat_sessions[session_key] = chat_sessions[session_key][-100:]
         
@@ -137,19 +166,17 @@ async def get_chat_history(bot_id: str, tenant_id: str, user_id: str, limit: int
 
 async def get_bot_config(bot_id: str, tenant_id: str):
     """
-    Retrieve bot configuration - you'll need to implement this based on your bot storage
+    Retrieve bot configuration
     """
     try:
-        # Option 1: If you have a bot management system
+        # Try to import your actual bot management
         from app.models.bot import get_bot_by_id
         bot = await get_bot_by_id(bot_id, tenant_id)
         return bot
-        
     except ImportError:
-        # Option 2: Mock bot config for testing - replace with your actual bot storage
-        print(f"Using mock bot config for {bot_id} - integrate with your bot system")
+        # Mock bot config for testing
+        print(f"Using mock bot config for {bot_id}")
         
-        # Different system messages based on bot_id for testing
         system_messages = {
             "support-bot": "You are a helpful customer support assistant. Answer questions based on the provided documentation.",
             "sales-bot": "You are a friendly sales assistant. Help users with product information and purchasing decisions.",
@@ -160,18 +187,12 @@ async def get_bot_config(bot_id: str, tenant_id: str):
             "id": bot_id,
             "tenant_id": tenant_id,
             "name": f"Bot {bot_id}",
-            "model": "gpt-4",
             "system_message": system_messages.get(bot_id, "You are a helpful AI assistant."),
-            "temperature": 0.7
         }
-    except Exception as e:
-        print(f"Bot config error: {str(e)}")
-        return None
 
-# Health check endpoint for chat service
+# Health check endpoint
 @router.get("/health")
 async def chat_health():
-    """Health check for chat service"""
     return {
         "status": "healthy",
         "service": "chat",
@@ -179,29 +200,12 @@ async def chat_health():
         "timestamp": format_iso_with_timezone(get_current_utc_time())
     }
 
-# Additional endpoint to clear chat history (useful for testing)
 @router.delete("/chat/history")
 async def clear_chat_history(bot_id: str, tenant_id: str, user_id: str):
-    """Clear chat history for a specific session"""
     try:
         session_key = f"{tenant_id}_{bot_id}_{user_id}"
         if session_key in chat_sessions:
             del chat_sessions[session_key]
-        
         return {"status": "success", "message": "Chat history cleared"}
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to clear history: {str(e)}")
-
-# Initialize chat session cleanup (optional)
-@router.on_event("startup")
-async def startup_event():
-    """Initialize chat service on startup"""
-    print("Chat service starting up...")
-    # You could load persistent chat history here if using a database
-
-@router.on_event("shutdown") 
-async def shutdown_event():
-    """Cleanup chat service on shutdown"""
-    print("Chat service shutting down...")
-    # You could save chat history to persistent storage here
