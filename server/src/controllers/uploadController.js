@@ -4,6 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { nanoid } from "nanoid";
 import pythonService from "../../services/pythonService.js";
+import axios from "axios";
 
 // Configure multer (moved from routes)
 const UPLOAD_DIR = path.resolve(
@@ -44,71 +45,77 @@ export const upload = multer({
 });
 
 // File upload handler
-export const uploadFiles = async (req, res) => {
+export const uploadFiles = async (req, res, next) => {
   try {
-    const files = (req.files || []).map((f) => ({
-      filename: f.originalname,
-      storedAs: f.filename,
-      size: f.size,
-      mimetype: f.mimetype,
-      uploadedBy: req.user.userId,
-      tenantId: req.user.tenantId,
-      path: f.path, // 🆕 Add file path for Python service
-    }));
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "no_files",
+        message: "No files uploaded",
+      });
+    }
 
-    // 🆕 INTEGRATION: Send files to Python RAG for processing
-    const botId = req.body.botId; // You'll need to send botId from frontend
-    if (botId) {
+    const { botId } = req.body;
+    if (!botId) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_bot_id",
+        message: "botId is required",
+      });
+    }
+
+    const results = [];
+
+    // Process each file with Python RAG service
+    for (const file of req.files) {
       try {
-        const pythonResult = await pythonService.ingestFiles(botId, req.files);
-        if (pythonResult.ok) {
-          console.log("✅ Files processed by Python RAG");
-          // Mark files as processed in response
-          files.forEach((file) => (file.ragProcessed = true));
-        } else {
-          console.warn(
-            "⚠️ Files uploaded but Python RAG processing failed:",
-            pythonResult.error
-          );
-          files.forEach((file) => (file.ragProcessed = false));
-        }
-      } catch (pythonError) {
-        console.warn(
-          "⚠️ Files uploaded but Python RAG unavailable:",
-          pythonError.message
+        // Call Python ingest service
+        const pythonResponse = await axios.post(
+          "http://localhost:8000/api/ingest",
+          {
+            bot_id: botId,
+            paths: [file.path], // Send file path to Python
+            user_id: req.user?.id,
+            tenant_id: req.user?.tenant_id,
+          }
         );
-        files.forEach((file) => (file.ragProcessed = false));
+
+        results.push({
+          filename: file.originalname,
+          success: true,
+          chunks: pythonResponse.data.chunks_added,
+          path: file.path,
+        });
+      } catch (error) {
+        console.error(`Failed to process ${file.originalname}:`, error);
+        results.push({
+          filename: file.originalname,
+          success: false,
+          error: error.message,
+        });
       }
     }
 
-    return res.json({ ok: true, files });
-  } catch (error) {
-    console.error("[upload:files] error:", error);
-    return res.status(500).json({
-      ok: false,
-      error: "upload_error",
-      message: "Failed to process upload",
+    res.json({
+      ok: true,
+      files: results,
+      botId: botId,
     });
+  } catch (error) {
+    next(error);
   }
 };
 
 // Error handler middleware
-export const handleUploadErrors = (err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({
-      ok: false,
-      error: err.code,
-      message: err.message,
-    });
+export const handleUploadErrors = (error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        ok: false,
+        error: "file_too_large",
+        message: "File size too large (max 25MB)",
+      });
+    }
   }
-
-  if (err) {
-    return res.status(400).json({
-      ok: false,
-      error: "upload_error",
-      message: err.message,
-    });
-  }
-
-  next();
+  next(error);
 };
