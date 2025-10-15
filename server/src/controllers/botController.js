@@ -1,4 +1,4 @@
-// server/src/controllers/botController.js
+// server/src/controllers/botController.js - UPDATED
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 // Path to JSON files
 const BOTS_FILE = path.join(__dirname, "../../data/bots/bots.json");
-const USERS_FILE = path.join(__dirname, "../../data/users/users.json"); // 🆕 Added
+const USERS_FILE = path.join(__dirname, "../../data/users/users.json");
 
 // Helper function to read users from JSON
 async function readUsers() {
@@ -41,8 +41,8 @@ export const createBot = async (req, res) => {
     const { botName, model, systemMessage, fallback, escalation, files } =
       req.body;
 
-    console.log("🤖 Creating bot for tenant:", req.user.tenantId);
-    console.log("👤 User ID from token:", req.user.userId);
+    console.log("🤖 Creating bot for user:", req.user.userId);
+    console.log("🏢 Tenant:", req.user.tenantId);
 
     // Validation
     if (!botName || !model) {
@@ -55,12 +55,9 @@ export const createBot = async (req, res) => {
 
     // Read users data to verify user exists
     const usersData = await readUsers();
-    console.log("📋 Current users in JSON:", usersData.users.length);
-
-    // Check if user exists in JSON file
     const user = usersData.users.find((u) => u.id === req.user.userId);
     if (!user) {
-      console.error("❌ User not found in JSON file:", req.user.userId);
+      console.error("❌ User not found:", req.user.userId);
       return res.status(400).json({
         ok: false,
         error: "user_not_found",
@@ -70,18 +67,20 @@ export const createBot = async (req, res) => {
 
     // Read existing bots
     const botsData = await readBots();
-    console.log("📋 Current bots in JSON:", botsData.bots.length);
 
-    // Check for duplicate bot name within tenant
+    // Check for duplicate bot name within user's bots
     const duplicateBot = botsData.bots.find(
-      (bot) => bot.botName === botName && bot.tenantId === req.user.tenantId
+      (bot) =>
+        bot.botName === botName &&
+        bot.ownerId === req.user.userId &&
+        bot.tenantId === req.user.tenantId
     );
 
     if (duplicateBot) {
       return res.status(400).json({
         ok: false,
         error: "duplicate_bot",
-        message: "A bot with this name already exists in your workspace",
+        message: "You already have a bot with this name",
       });
     }
 
@@ -94,7 +93,7 @@ export const createBot = async (req, res) => {
       model,
       systemMessage: systemMessage || "",
       fallback: fallback || "",
-      escalation: escalation || { enabled: false, email: "" },
+      escalation: escalation || { enabled: false, escalation_email: "" }, // ✅ Updated
       files: files || [],
       tenantId: req.user.tenantId,
       ownerId: req.user.userId,
@@ -105,76 +104,18 @@ export const createBot = async (req, res) => {
     // Add bot to data and update lastId
     botsData.bots.push(newBot);
     botsData.lastId = parseInt(botId);
-
-    // Write back to file
     await writeBots(botsData);
 
-    console.log("✅ Bot created in JSON:", {
+    console.log("✅ Bot created:", {
       id: botId,
       botName,
+      ownerId: req.user.userId,
       tenantId: req.user.tenantId,
     });
 
-    // 🆕 PYTHON RAG INTEGRATION
-    let pythonRagStatus = "disconnected";
-    let pythonRagError = null;
-
-    try {
-      console.log("🎯 Attempting to register bot with Python RAG service...");
-
-      const pythonResult = await pythonService.createBot({
-        botId: newBot.id,
-        botName: newBot.botName,
-        systemMessage: newBot.systemMessage,
-        model: newBot.model,
-        fallback: newBot.fallback,
-        tenantId: newBot.tenantId,
-        ownerId: newBot.ownerId,
-      });
-
-      if (pythonResult.ok) {
-        pythonRagStatus = "connected";
-        console.log("✅ Bot successfully registered with Python RAG service");
-      } else {
-        pythonRagStatus = "failed";
-        pythonRagError = pythonResult.error;
-        console.warn(
-          "⚠️ Bot created but Python RAG registration failed:",
-          pythonResult.error
-        );
-      }
-    } catch (pythonError) {
-      pythonRagStatus = "error";
-      pythonRagError = pythonError.message;
-      console.warn(
-        "⚠️ Bot created but Python RAG service unavailable:",
-        pythonError.message
-      );
-      // Continue - bot is still usable, just without RAG features initially
-    }
-
     res.status(201).json({
       ok: true,
-      bot: {
-        id: newBot.id,
-        botName: newBot.botName,
-        model: newBot.model,
-        systemMessage: newBot.systemMessage,
-        fallback: newBot.fallback,
-        escalation: newBot.escalation,
-        files: newBot.files,
-        createdAt: newBot.createdAt,
-        // 🆕 Add Python RAG integration status
-        ragStatus: pythonRagStatus,
-        ragError: pythonRagError,
-      },
-      // 🆕 Include integration status in response
-      integration: {
-        pythonRag: {
-          status: pythonRagStatus,
-          ...(pythonRagError && { error: pythonRagError }),
-        },
-      },
+      bot: newBot,
     });
   } catch (error) {
     console.error("[bot:create] error:", error);
@@ -186,17 +127,23 @@ export const createBot = async (req, res) => {
   }
 };
 
-// Get all bots for tenant
+// Get all bots for user (only user's own bots)
 export const getBots = async (req, res) => {
   try {
     const botsData = await readBots();
+
+    // ✅ Filter by both ownerId AND tenantId for security
     const userBots = botsData.bots.filter(
-      (bot) => bot.tenantId === req.user.tenantId
+      (bot) =>
+        bot.ownerId === req.user.userId && bot.tenantId === req.user.tenantId
     );
+
+    console.log(`📊 Found ${userBots.length} bots for user ${req.user.userId}`);
 
     res.json({
       ok: true,
       bots: userBots,
+      total: userBots.length,
     });
   } catch (error) {
     console.error("[bot:list] error:", error);
@@ -208,19 +155,24 @@ export const getBots = async (req, res) => {
   }
 };
 
-// Get single bot
+// Get single bot (with ownerId security)
 export const getBot = async (req, res) => {
   try {
     const botsData = await readBots();
+
+    // ✅ Check both ownerId and tenantId for security
     const bot = botsData.bots.find(
-      (bot) => bot.id === req.params.id && bot.tenantId === req.user.tenantId
+      (bot) =>
+        bot.id === req.params.id &&
+        bot.ownerId === req.user.userId &&
+        bot.tenantId === req.user.tenantId
     );
 
     if (!bot) {
       return res.status(404).json({
         ok: false,
         error: "bot_not_found",
-        message: "Bot not found",
+        message: "Bot not found or access denied",
       });
     }
 
@@ -238,29 +190,35 @@ export const getBot = async (req, res) => {
   }
 };
 
-// Update bot
+// Update bot (with ownerId security)
 export const updateBot = async (req, res) => {
   try {
     const { botName, model, systemMessage, fallback, escalation, files } =
       req.body;
 
     const botsData = await readBots();
+
+    // ✅ Check both ownerId and tenantId for security
     const botIndex = botsData.bots.findIndex(
-      (bot) => bot.id === req.params.id && bot.tenantId === req.user.tenantId
+      (bot) =>
+        bot.id === req.params.id &&
+        bot.ownerId === req.user.userId &&
+        bot.tenantId === req.user.tenantId
     );
 
     if (botIndex === -1) {
       return res.status(404).json({
         ok: false,
         error: "bot_not_found",
-        message: "Bot not found",
+        message: "Bot not found or access denied",
       });
     }
 
-    // Check for duplicate name (excluding current bot)
+    // Check for duplicate name (only within user's own bots)
     const duplicateBot = botsData.bots.find(
       (bot) =>
         bot.botName === botName &&
+        bot.ownerId === req.user.userId &&
         bot.tenantId === req.user.tenantId &&
         bot.id !== req.params.id
     );
@@ -269,7 +227,7 @@ export const updateBot = async (req, res) => {
       return res.status(400).json({
         ok: false,
         error: "duplicate_bot",
-        message: "A bot with this name already exists",
+        message: "You already have a bot with this name",
       });
     }
 
@@ -287,6 +245,12 @@ export const updateBot = async (req, res) => {
 
     await writeBots(botsData);
 
+    console.log("✅ Bot updated:", {
+      id: req.params.id,
+      botName,
+      ownerId: req.user.userId,
+    });
+
     res.json({
       ok: true,
       bot: botsData.bots[botIndex],
@@ -301,25 +265,38 @@ export const updateBot = async (req, res) => {
   }
 };
 
-// Delete bot
+// Delete bot (with ownerId security)
 export const deleteBot = async (req, res) => {
   try {
     const botsData = await readBots();
+
+    // ✅ Check both ownerId and tenantId for security
     const botIndex = botsData.bots.findIndex(
-      (bot) => bot.id === req.params.id && bot.tenantId === req.user.tenantId
+      (bot) =>
+        bot.id === req.params.id &&
+        bot.ownerId === req.user.userId &&
+        bot.tenantId === req.user.tenantId
     );
 
     if (botIndex === -1) {
       return res.status(404).json({
         ok: false,
         error: "bot_not_found",
-        message: "Bot not found",
+        message: "Bot not found or access denied",
       });
     }
+
+    const deletedBot = botsData.bots[botIndex];
 
     // Remove bot
     botsData.bots.splice(botIndex, 1);
     await writeBots(botsData);
+
+    console.log("🗑️ Bot deleted:", {
+      id: req.params.id,
+      botName: deletedBot.botName,
+      ownerId: req.user.userId,
+    });
 
     res.json({
       ok: true,

@@ -1,10 +1,10 @@
-// server/src/models/Bot.js
+// server/src/models/Bot.js - UPDATED
 import mongoose from "mongoose";
 
 const EscalationSchema = new mongoose.Schema(
   {
     enabled: { type: Boolean, default: false },
-    email: { type: String, default: "" },
+    escalation_email: { type: String, default: "" }, // ✅ Changed to escalation_email
   },
   { _id: false }
 );
@@ -36,18 +36,18 @@ const BotSchema = new mongoose.Schema(
     tenantId: {
       type: String,
       required: true,
-      index: true, // ✅ Keep this - it's not marked as unique
+      index: true,
     },
     ownerId: {
       type: String,
       required: true,
-      index: true, // ✅ Keep this - it's not marked as unique
+      index: true,
     },
   },
   { timestamps: true }
 );
 
-// ✅ Keep this compound index - it's not a duplicate
+// ✅ Keep this compound index
 BotSchema.index({ tenantId: 1, botName: 1 }, { unique: true });
 
 export const Bot = mongoose.models.Bot || mongoose.model("Bot", BotSchema);

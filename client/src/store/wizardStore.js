@@ -7,7 +7,7 @@ const initial = {
     "welcome",
     "basics",
     "responses",
-    "register", // This step will be skipped when logged in
+    "register",
     "knowledge",
     "preview",
     "deploy",
@@ -19,7 +19,7 @@ const initial = {
     systemMessage: "",
     model: "gpt-4o-mini",
     fallback: "",
-    escalation: { enabled: false, email: "" },
+    escalation: { enabled: false, escalation_email: "" }, // ✅ Changed email to escalation_email
 
     // Registration fields
     user: {
@@ -34,7 +34,6 @@ const initial = {
     uploadedFiles: [],
   },
   errors: {},
-  // 🆕 Add auth status
   isAuthenticated: false,
 };
 

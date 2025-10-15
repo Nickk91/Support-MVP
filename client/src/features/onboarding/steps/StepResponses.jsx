@@ -1,16 +1,12 @@
-// src/features/onboarding/steps/StepResponses.jsx
-import { useWizardStore } from "../../../store/wizardStore";
-import { Button } from "@/components/ui/button";
-import StepActions from "../../../components/ui/StepActions/StepActions";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-
+// src/features/onboarding/steps/StepResponses.jsx - UPDATED
 export default function StepResponses() {
   const { values, update, next, prev, validateStep, validateField, errors } =
     useWizardStore();
 
-  const escalation = values?.escalation ?? { enabled: false, email: "" };
+  const escalation = values?.escalation ?? {
+    enabled: false,
+    escalation_email: "",
+  }; // ✅ Updated
   const stepErr = errors?.responses || {};
 
   const handleNext = () => {
@@ -32,7 +28,7 @@ export default function StepResponses() {
               update({ fallback: e.target.value });
               validateField("responses", "fallback");
             }}
-            placeholder="Sorry, I couldn’t find that. Can you rephrase?"
+            placeholder="Sorry, I couldn't find that. Can you rephrase?"
             className={
               stepErr.fallback
                 ? "border-destructive focus-visible:ring-destructive"
@@ -51,7 +47,6 @@ export default function StepResponses() {
             checked={!!escalation.enabled}
             onCheckedChange={(checked) => {
               update({ escalation: { ...escalation, enabled: !!checked } });
-              // re-validate email field when toggling feature
               validateField("responses", "escalationEmail");
             }}
             className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
@@ -68,10 +63,13 @@ export default function StepResponses() {
             <Input
               id="escalationEmail"
               type="email"
-              value={escalation.email}
+              value={escalation.escalation_email} // ✅ Updated
               onChange={(e) => {
                 update({
-                  escalation: { ...escalation, email: e.target.value },
+                  escalation: {
+                    ...escalation,
+                    escalation_email: e.target.value,
+                  }, // ✅ Updated
                 });
                 validateField("responses", "escalationEmail");
               }}

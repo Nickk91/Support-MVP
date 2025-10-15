@@ -1,4 +1,4 @@
-// src/utils/validation.js
+// src/utils/validation.js - UPDATED
 export const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 export const LIMITS = {
@@ -24,10 +24,12 @@ export const validateStep = (stepKey, values) => {
 
     const esc = values.escalation || {};
     if (esc.enabled) {
-      if (!esc.email) {
+      if (!esc.escalation_email) {
+        // ✅ Updated from esc.email
         stepErrors.escalationEmail =
           "Escalation email is required when escalation is enabled.";
-      } else if (!emailRe.test(esc.email)) {
+      } else if (!emailRe.test(esc.escalation_email)) {
+        // ✅ Updated
         stepErrors.escalationEmail = "Please enter a valid email address.";
       }
     }
@@ -105,8 +107,10 @@ export const validateField = (stepKey, field, values) => {
     if (field === "escalationEmail") {
       const esc = values.escalation || {};
       if (esc.enabled) {
-        if (!esc.email) message = "Escalation email is required.";
-        else if (!emailRe.test(esc.email)) {
+        if (!esc.escalation_email)
+          message = "Escalation email is required."; // ✅ Updated
+        else if (!emailRe.test(esc.escalation_email)) {
+          // ✅ Updated
           message = "Please enter a valid email address.";
         }
       } else {

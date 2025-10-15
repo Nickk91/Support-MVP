@@ -1,4 +1,4 @@
-// server/src/routes/bots.js
+// server/src/routes/bots.js - NO CHANGES NEEDED
 import { Router } from "express";
 import { authenticateToken } from "../middleware/auth.js";
 import {
