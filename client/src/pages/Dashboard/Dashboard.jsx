@@ -1,46 +1,78 @@
-// src/pages/Dashboard/Dashboard.jsx
+// src/pages/Dashboard/Dashboard.jsx - ENHANCED
 import { useState, useEffect } from "react";
-import { useAuth } from "../../hooks/useAuth"; // Use our new hook
+import { useAuth } from "../../hooks/useAuth";
 import BotCard from "../../components/BotCard/BotCard";
 import BotEditDialog from "../../components/BotEditDialog/BotEditDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bot, MessageSquare, FileText, Plus } from "lucide-react";
+import {
+  Bot,
+  MessageSquare,
+  FileText,
+  Plus,
+  RefreshCw,
+  AlertCircle,
+} from "lucide-react";
+import { toast } from "sonner"; // or your preferred toast library
 
 export default function Dashboard() {
-  const { user, token, isAuthenticated } = useAuth(); // Use the hook
+  const { user, token, isAuthenticated } = useAuth();
   const [bots, setBots] = useState([]);
   const [selectedBot, setSelectedBot] = useState(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchUserBots();
+    } else {
+      setLoading(false);
     }
   }, [isAuthenticated, token]);
 
-  const fetchUserBots = async () => {
+  const fetchUserBots = async (showRefresh = false) => {
     try {
+      if (showRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
       const response = await fetch("/api/bots", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (!response.ok) {
+        throw new Error(`Failed to fetch bots: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.ok) {
         setBots(data.bots || []);
+        if (showRefresh) {
+          toast.success("Bots refreshed successfully");
+        }
+      } else {
+        throw new Error(data.message || "Failed to fetch bots");
       }
     } catch (error) {
       console.error("Failed to fetch bots:", error);
+      setError(error.message);
+      toast.error("Failed to load bots");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   const handleCreateBot = () => {
-    setSelectedBot(null); // Null means create new
+    setSelectedBot(null);
     setEditDialogOpen(true);
   };
 
@@ -53,12 +85,39 @@ export default function Dashboard() {
     if (selectedBot) {
       // Update existing bot
       setBots((prev) => prev.map((b) => (b.id === savedBot.id ? savedBot : b)));
+      toast.success("Bot updated successfully");
     } else {
       // Add new bot
       setBots((prev) => [...prev, savedBot]);
+      toast.success("Bot created successfully");
     }
     setEditDialogOpen(false);
     setSelectedBot(null);
+  };
+
+  const handleDeleteBot = async (botId) => {
+    try {
+      const response = await fetch(`/api/bots/${botId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setBots((prev) => prev.filter((bot) => bot.id !== botId));
+        toast.success("Bot deleted successfully");
+      } else {
+        throw new Error("Failed to delete bot");
+      }
+    } catch (error) {
+      console.error("Failed to delete bot:", error);
+      toast.error("Failed to delete bot");
+    }
+  };
+
+  const handleRefresh = () => {
+    fetchUserBots(true);
   };
 
   if (loading) {
@@ -78,6 +137,28 @@ export default function Dashboard() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-6xl mx-auto">
+          <Card className="border-red-200">
+            <CardContent className="p-6 text-center">
+              <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-red-800 mb-2">
+                Failed to load bots
+              </h3>
+              <p className="text-red-600 mb-4">{error}</p>
+              <Button onClick={handleRefresh} variant="outline">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Try Again
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
@@ -87,14 +168,26 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold">
               Welcome back, {user?.firstName}!
             </h1>
-            <p className=" mt-2">
+            <p className="text-muted-foreground mt-2">
               Manage your AI assistants and monitor their performance
             </p>
           </div>
-          <Button onClick={handleCreateBot}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Bot
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+            <Button onClick={handleCreateBot}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Bot
+            </Button>
+          </div>
         </div>
 
         {/* Stats Overview */}
@@ -104,7 +197,9 @@ export default function Dashboard() {
               <div className="flex items-center">
                 <Bot className="h-8 w-8 text-blue-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium">Total Bots</p>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Total Bots
+                  </p>
                   <p className="text-2xl font-bold">{bots.length}</p>
                 </div>
               </div>
@@ -116,8 +211,11 @@ export default function Dashboard() {
               <div className="flex items-center">
                 <MessageSquare className="h-8 w-8 text-green-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium">Total Messages</p>
-                  <p className="text-2xl font-bold">1,247</p>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Active Conversations
+                  </p>
+                  <p className="text-2xl font-bold">0</p>{" "}
+                  {/* Placeholder - implement later */}
                 </div>
               </div>
             </CardContent>
@@ -128,7 +226,9 @@ export default function Dashboard() {
               <div className="flex items-center">
                 <FileText className="h-8 w-8 text-purple-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium ">Documents</p>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Total Documents
+                  </p>
                   <p className="text-2xl font-bold">
                     {bots.reduce(
                       (total, bot) => total + (bot.files?.length || 0),
@@ -142,20 +242,31 @@ export default function Dashboard() {
         </div>
 
         {/* Bot Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {bots.map((bot) => (
-            <BotCard key={bot.id} bot={bot} onEdit={() => handleEditBot(bot)} />
-          ))}
-        </div>
+        {bots.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold mb-4">Your AI Assistants</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {bots.map((bot) => (
+                <BotCard
+                  key={bot.id}
+                  bot={bot}
+                  onEdit={() => handleEditBot(bot)}
+                  onDelete={() => handleDeleteBot(bot.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Empty State */}
         {bots.length === 0 && (
           <Card className="text-center p-12">
             <CardContent>
               <Bot className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold  mb-2">No bots yet</h3>
-              <p className=" mb-4">
-                Create your first AI assistant to get started
+              <h3 className="text-lg font-semibold mb-2">No bots yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Create your first AI assistant to get started with customer
+                support automation
               </p>
               <Button onClick={handleCreateBot}>
                 <Plus className="h-4 w-4 mr-2" />

@@ -1,5 +1,7 @@
 // client/src/components/BotCard/BotCard.jsx
 import { Bot, MessageSquare, FileText, Settings } from "lucide-react";
+import { Button } from "../ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 
 export default function BotCard({ bot, onEdit }) {
   return (
