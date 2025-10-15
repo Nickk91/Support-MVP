@@ -1,6 +1,7 @@
 // src/features/onboarding/steps/StepRegister.jsx
 import { useState, useEffect } from "react";
 import { useWizardStore } from "../../../store/wizardStore";
+import { useUserStore } from "../../../store/useUserStore"; // Import the user store
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,9 @@ export default function StepRegister() {
     errors,
     setAuthenticated,
   } = useWizardStore();
+
+  // Use the user store
+  const { login } = useUserStore();
 
   const [isLogin, setIsLogin] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -85,11 +89,10 @@ export default function StepRegister() {
         throw new Error(data.message || "Authentication failed");
       }
 
-      // Store token and user data
-      localStorage.setItem("authToken", data.access_token);
-      localStorage.setItem("user", JSON.stringify(data.user));
+      // ✅ UPDATED: Use the user store instead of direct localStorage
+      login(data.user, data.access_token);
 
-      // Update store authentication status
+      // Update wizard store authentication status
       setAuthenticated(true);
 
       console.log("✅ Auth successful:", data.user);
