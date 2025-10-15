@@ -196,11 +196,13 @@ export default function Dashboard() {
             <CardContent className="p-6">
               <div className="flex items-center">
                 <Bot className="h-8 w-8 text-blue-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-muted-foreground">
+                <div className="ml-10 flex flex-col m">
+                  <p className="text-sm font-medium text-muted-foreground text-center">
                     Total Bots
                   </p>
-                  <p className="text-2xl font-bold">{bots.length}</p>
+                  <p className="text-2xl font-bold text-center ">
+                    {bots.length}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -214,7 +216,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Active Conversations
                   </p>
-                  <p className="text-2xl font-bold">0</p>{" "}
+                  <p className="text-2xl font-bold text-center">0</p>{" "}
                   {/* Placeholder - implement later */}
                 </div>
               </div>
@@ -229,7 +231,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Total Documents
                   </p>
-                  <p className="text-2xl font-bold">
+                  <p className="text-2xl font-bold text-center">
                     {bots.reduce(
                       (total, bot) => total + (bot.files?.length || 0),
                       0

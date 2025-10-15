@@ -9,20 +9,11 @@ export default function BotBehaviorSettings({ bot, onChange }) {
     onChange({ [field]: value });
   };
 
-  const handleEscalationToggle = (enabled) => {
+  const handleEscalationChange = (updates) => {
     onChange({
       escalation: {
         ...bot?.escalation,
-        enabled,
-      },
-    });
-  };
-
-  const handleEscalationEmail = (email) => {
-    onChange({
-      escalation: {
-        ...bot?.escalation,
-        email,
+        ...updates,
       },
     });
   };
@@ -33,7 +24,7 @@ export default function BotBehaviorSettings({ bot, onChange }) {
         <Label htmlFor="systemMessage">System Message</Label>
         <Textarea
           id="systemMessage"
-          defaultValue={bot?.systemMessage || ""}
+          value={bot?.systemMessage || ""}
           onChange={(e) => handleChange("systemMessage", e.target.value)}
           placeholder="You are a helpful customer support assistant. Answer questions based on the provided documentation."
           rows={4}
@@ -47,7 +38,7 @@ export default function BotBehaviorSettings({ bot, onChange }) {
         <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
         <Textarea
           id="guardrails"
-          defaultValue={bot?.guardrails || ""}
+          value={bot?.guardrails || ""}
           onChange={(e) => handleChange("guardrails", e.target.value)}
           placeholder="Don't mention competitors. Don't discuss pricing. Always be polite and professional."
           rows={3}
@@ -61,7 +52,7 @@ export default function BotBehaviorSettings({ bot, onChange }) {
         <Label htmlFor="fallback">Fallback Message</Label>
         <Textarea
           id="fallback"
-          defaultValue={bot?.fallback || ""}
+          value={bot?.fallback || ""}
           onChange={(e) => handleChange("fallback", e.target.value)}
           placeholder="I'm sorry, I don't have enough information to answer that question. Please contact our support team for assistance."
           rows={3}
@@ -82,8 +73,8 @@ export default function BotBehaviorSettings({ bot, onChange }) {
           </div>
           <Switch
             id="escalation"
-            defaultChecked={bot?.escalation?.enabled || false}
-            onCheckedChange={handleEscalationToggle}
+            checked={bot?.escalation?.enabled || false}
+            onCheckedChange={(enabled) => handleEscalationChange({ enabled })}
           />
         </div>
 
@@ -93,8 +84,10 @@ export default function BotBehaviorSettings({ bot, onChange }) {
             <Input
               id="escalationEmail"
               type="email"
-              defaultValue={bot?.escalation?.email || ""}
-              onChange={(e) => handleEscalationEmail(e.target.value)}
+              value={bot?.escalation?.escalation_email || ""}
+              onChange={(e) =>
+                handleEscalationChange({ escalation_email: e.target.value })
+              }
               placeholder="support@company.com"
             />
             <p className="text-sm text-muted-foreground">

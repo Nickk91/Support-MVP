@@ -8,7 +8,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export default function BotAdvancedSettings({ bot }) {
+export default function BotAdvancedSettings({ bot, onChange }) {
   const models = [
     { value: "gpt-4o-mini", label: "GPT-4o Mini" },
     { value: "gpt-4", label: "GPT-4" },
@@ -17,11 +17,22 @@ export default function BotAdvancedSettings({ bot }) {
     { value: "claude-3-haiku", label: "Claude 3 Haiku" },
   ];
 
+  const handleModelChange = (value) => {
+    onChange({ model: value });
+  };
+
+  const handleTemperatureChange = (e) => {
+    onChange({ temperature: parseFloat(e.target.value) });
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="model">AI Model</Label>
-        <Select defaultValue={bot?.model || "gpt-4o-mini"}>
+        <Select
+          value={bot?.model || "gpt-4o-mini"}
+          onValueChange={handleModelChange}
+        >
           <SelectTrigger>
             <SelectValue placeholder="Select a model" />
           </SelectTrigger>
@@ -33,23 +44,26 @@ export default function BotAdvancedSettings({ bot }) {
             ))}
           </SelectContent>
         </Select>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           Choose the AI model that powers your bot.
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="temperature">Temperature</Label>
+        <Label htmlFor="temperature">
+          Temperature: {bot?.temperature || 0.7}
+        </Label>
         <input
           type="range"
           id="temperature"
           min="0"
           max="1"
           step="0.1"
-          defaultValue="0.7"
+          value={bot?.temperature || 0.7}
+          onChange={handleTemperatureChange}
           className="w-full"
         />
-        <div className="flex justify-between text-xs text-gray-500">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>More focused</span>
           <span>Balanced</span>
           <span>More creative</span>

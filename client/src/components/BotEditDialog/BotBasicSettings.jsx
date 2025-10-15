@@ -14,7 +14,7 @@ export default function BotBasicSettings({ bot, onChange }) {
         <Label htmlFor="botName">Bot Name</Label>
         <Input
           id="botName"
-          defaultValue={bot?.botName || ""}
+          value={bot?.botName || ""}
           onChange={(e) => handleChange("botName", e.target.value)}
           placeholder="My Support Assistant"
         />
@@ -27,7 +27,7 @@ export default function BotBasicSettings({ bot, onChange }) {
         <Label htmlFor="greeting">Welcome Message</Label>
         <Textarea
           id="greeting"
-          defaultValue={bot?.greeting || ""}
+          value={bot?.greeting || ""}
           onChange={(e) => handleChange("greeting", e.target.value)}
           placeholder="Hello! I'm your AI assistant. How can I help you today?"
           rows={3}
