@@ -1,27 +1,49 @@
-// src/hooks/useAuth.js
+// src/hooks/useAuth.js - Add debugging
 import { useState, useEffect } from "react";
 
-export function useAuth() {
+export const useAuth = () => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    // Read from localStorage on component mount
-    const token = localStorage.getItem("authToken");
-    const userStr = localStorage.getItem("user");
-
-    if (token && userStr) {
+    const checkAuth = () => {
       try {
-        const userData = JSON.parse(userStr);
-        setUser(userData);
-        setToken(token);
-        setIsAuthenticated(true);
+        const storedToken = localStorage.getItem("authToken");
+        const storedUser = localStorage.getItem("user");
+
+        console.log("🔐 Auth Check:", {
+          hasToken: !!storedToken,
+          hasUser: !!storedUser,
+          tokenLength: storedToken?.length,
+          user: storedUser ? JSON.parse(storedUser) : null,
+        });
+
+        if (storedToken && storedUser) {
+          setToken(storedToken);
+          setUser(JSON.parse(storedUser));
+          setIsAuthenticated(true);
+        } else {
+          setToken(null);
+          setUser(null);
+          setIsAuthenticated(false);
+        }
       } catch (error) {
-        console.error("Failed to parse user data:", error);
+        console.error("Auth check error:", error);
+        localStorage.removeItem("authToken");
+        localStorage.removeItem("user");
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
       }
-    }
+    };
+
+    checkAuth();
+
+    // Listen for storage changes (like from other tabs)
+    window.addEventListener("storage", checkAuth);
+    return () => window.removeEventListener("storage", checkAuth);
   }, []);
 
   return { user, token, isAuthenticated };
-}
+};

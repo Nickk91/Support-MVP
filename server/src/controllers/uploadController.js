@@ -45,6 +45,7 @@ export const upload = multer({
 });
 
 // File upload handler
+// File upload handler - ENHANCED
 export const uploadFiles = async (req, res, next) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -65,6 +66,7 @@ export const uploadFiles = async (req, res, next) => {
     }
 
     const results = [];
+    const fileRecords = [];
 
     // Process each file with Python RAG service
     for (const file of req.files) {
@@ -74,18 +76,37 @@ export const uploadFiles = async (req, res, next) => {
           "http://localhost:8000/api/ingest",
           {
             bot_id: botId,
-            paths: [file.path], // Send file path to Python
-            user_id: req.user?.id,
-            tenant_id: req.user?.tenant_id,
+            paths: [file.path],
+            user_id: req.user.userId,
+            tenant_id: req.user.tenantId,
           }
         );
+
+        // Create file record for bot
+        const fileRecord = {
+          filename: file.originalname,
+          storedAs: file.filename,
+          size: file.size,
+          mimetype: file.mimetype,
+          uploadedBy: req.user.userId,
+          tenantId: req.user.tenantId,
+          path: file.path,
+        };
+
+        fileRecords.push(fileRecord);
 
         results.push({
           filename: file.originalname,
           success: true,
-          chunks: pythonResponse.data.chunks_added,
+          chunks: pythonResponse.data.chunks_added || 0,
           path: file.path,
         });
+
+        console.log(
+          `✅ File ingested: ${file.originalname} -> ${
+            pythonResponse.data.chunks_added || 0
+          } chunks`
+        );
       } catch (error) {
         console.error(`Failed to process ${file.originalname}:`, error);
         results.push({
@@ -96,10 +117,35 @@ export const uploadFiles = async (req, res, next) => {
       }
     }
 
+    // Update bot with file records
+    if (fileRecords.length > 0) {
+      try {
+        const botsData = await readBots();
+        const botIndex = botsData.bots.findIndex(
+          (bot) => bot.id === botId && bot.ownerId === req.user.userId
+        );
+
+        if (botIndex !== -1) {
+          botsData.bots[botIndex].files = [
+            ...(botsData.bots[botIndex].files || []),
+            ...fileRecords,
+          ];
+          botsData.bots[botIndex].updatedAt = new Date().toISOString();
+          await writeBots(botsData);
+          console.log(
+            `✅ Updated bot ${botId} with ${fileRecords.length} new files`
+          );
+        }
+      } catch (botError) {
+        console.error("Failed to update bot with file records:", botError);
+      }
+    }
+
     res.json({
       ok: true,
       files: results,
       botId: botId,
+      totalProcessed: fileRecords.length,
     });
   } catch (error) {
     next(error);

@@ -1,38 +1,82 @@
-// client/src/components/BotCard/BotCard.jsx
-import { Bot, MessageSquare, FileText, Settings } from "lucide-react";
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+// src/components/BotCard/BotCard.jsx - UPDATED
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Bot, Edit, Trash2, FileText, MessageSquare } from "lucide-react";
 
-export default function BotCard({ bot, onEdit }) {
+export default function BotCard({ bot, onEdit, onDelete }) {
+  const handleDeleteClick = (e) => {
+    e.stopPropagation(); // Prevent triggering edit
+    onDelete(bot);
+  };
+
   return (
-    <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+    <Card className="hover:shadow-lg transition-shadow duration-200">
       <CardHeader className="pb-3">
-        <div className="flex justify-between items-start">
-          <div className="flex items-center space-x-3">
-            <Bot className="h-6 w-6 text-blue-600" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Bot className="h-5 w-5 text-blue-600" />
             <CardTitle className="text-lg">{bot.botName}</CardTitle>
           </div>
-          <Button variant="ghost" size="sm" onClick={onEdit}>
-            <Settings className="h-4 w-4" />
-          </Button>
+          <div className="flex space-x-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onEdit(bot)}
+              className="h-8 w-8 p-0"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDeleteClick}
+              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-        <p className="text-sm text-gray-600">{bot.model}</p>
+        <p className="text-sm text-muted-foreground">
+          {bot.model} •{" "}
+          {bot.systemMessage
+            ? "Custom system message"
+            : "Default system message"}
+        </p>
       </CardHeader>
-
       <CardContent className="pt-0">
-        <div className="flex justify-between text-sm text-gray-600 mb-3">
-          <div className="flex items-center">
-            <FileText className="h-4 w-4 mr-1" />
-            {bot.files?.length || 0} files
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center space-x-1">
+              <FileText className="h-4 w-4 text-gray-500" />
+              <span>Documents</span>
+            </div>
+            <span className="font-medium">{bot.files?.length || 0}</span>
           </div>
-          <div className="flex items-center">
-            <MessageSquare className="h-4 w-4 mr-1" />
-            247 messages
-          </div>
-        </div>
 
-        <div className="text-xs text-gray-500">
-          Created {new Date(bot.createdAt).toLocaleDateString()}
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center space-x-1">
+              <MessageSquare className="h-4 w-4 text-gray-500" />
+              <span>Fallback</span>
+            </div>
+            <span
+              className={`text-xs ${
+                bot.fallback ? "text-green-600" : "text-gray-500"
+              }`}
+            >
+              {bot.fallback ? "Configured" : "Not set"}
+            </span>
+          </div>
+
+          {bot.escalation?.enabled && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Escalation</span>
+              <span className="text-xs text-orange-600">Enabled</span>
+            </div>
+          )}
+
+          <div className="pt-2 border-t text-xs text-muted-foreground">
+            Created {new Date(bot.createdAt).toLocaleDateString()}
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const BOTS_FILE = path.join(__dirname, "../../data/bots/bots.json");
 const USERS_FILE = path.join(__dirname, "../../data/users/users.json");
 
-// Helper function to read users from JSON
+// Helper functions
 async function readUsers() {
   try {
     const data = await fs.readFile(USERS_FILE, "utf8");
@@ -20,7 +20,6 @@ async function readUsers() {
   }
 }
 
-// Helper function to read bots from JSON
 async function readBots() {
   try {
     const data = await fs.readFile(BOTS_FILE, "utf8");
@@ -30,16 +29,24 @@ async function readBots() {
   }
 }
 
-// Helper function to write bots to JSON
 async function writeBots(botsData) {
   await fs.writeFile(BOTS_FILE, JSON.stringify(botsData, null, 2));
 }
 
-// Create new bot
+// Create new bot with Python RAG integration
 export const createBot = async (req, res) => {
   try {
-    const { botName, model, systemMessage, fallback, escalation, files } =
-      req.body;
+    const {
+      botName,
+      model,
+      systemMessage,
+      fallback,
+      escalation,
+      files,
+      greeting,
+      guardrails,
+      temperature,
+    } = req.body;
 
     console.log("🤖 Creating bot for user:", req.user.userId);
     console.log("🏢 Tenant:", req.user.tenantId);
@@ -93,7 +100,10 @@ export const createBot = async (req, res) => {
       model,
       systemMessage: systemMessage || "",
       fallback: fallback || "",
-      escalation: escalation || { enabled: false, escalation_email: "" }, // ✅ Updated
+      greeting: greeting || "",
+      guardrails: guardrails || "",
+      temperature: temperature || 0.7,
+      escalation: escalation || { enabled: false, escalation_email: "" },
       files: files || [],
       tenantId: req.user.tenantId,
       ownerId: req.user.userId,
@@ -106,16 +116,72 @@ export const createBot = async (req, res) => {
     botsData.lastId = parseInt(botId);
     await writeBots(botsData);
 
-    console.log("✅ Bot created:", {
+    console.log("✅ Bot created in JSON:", {
       id: botId,
       botName,
       ownerId: req.user.userId,
       tenantId: req.user.tenantId,
     });
 
+    // 🐍 Python RAG Integration - Register bot
+    let pythonRagStatus = "disconnected";
+    let pythonRagError = null;
+
+    try {
+      console.log("🎯 Registering bot with Python RAG service...");
+
+      const pythonResponse = await fetch("http://localhost:8000/api/bots", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": req.user.userId,
+          "X-Tenant-ID": req.user.tenantId,
+        },
+        body: JSON.stringify({
+          bot_id: botId,
+          bot_name: botName,
+          system_message: systemMessage,
+          model: model,
+          fallback: fallback,
+          tenant_id: req.user.tenantId,
+          owner_id: req.user.userId,
+        }),
+      });
+
+      if (pythonResponse.ok) {
+        const result = await pythonResponse.json();
+        pythonRagStatus = "connected";
+        console.log(
+          "✅ Bot successfully registered with Python RAG service:",
+          result.message
+        );
+      } else {
+        const errorText = await pythonResponse.text();
+        pythonRagStatus = "failed";
+        pythonRagError = `Python service error: ${pythonResponse.status} - ${errorText}`;
+        console.warn(
+          "⚠️ Bot created but Python RAG registration failed:",
+          errorText
+        );
+      }
+    } catch (pythonError) {
+      pythonRagStatus = "error";
+      pythonRagError = pythonError.message;
+      console.warn(
+        "⚠️ Bot created but Python RAG service unavailable:",
+        pythonError.message
+      );
+    }
+
     res.status(201).json({
       ok: true,
       bot: newBot,
+      integration: {
+        pythonRag: {
+          status: pythonRagStatus,
+          ...(pythonRagError && { error: pythonRagError }),
+        },
+      },
     });
   } catch (error) {
     console.error("[bot:create] error:", error);
@@ -123,6 +189,128 @@ export const createBot = async (req, res) => {
       ok: false,
       error: "server_error",
       message: "Failed to create bot",
+    });
+  }
+};
+
+// Update bot with Python RAG integration
+export const updateBot = async (req, res) => {
+  try {
+    const {
+      botName,
+      model,
+      systemMessage,
+      fallback,
+      escalation,
+      files,
+      greeting,
+      guardrails,
+      temperature,
+    } = req.body;
+
+    const botsData = await readBots();
+
+    // ✅ Check both ownerId and tenantId for security
+    const botIndex = botsData.bots.findIndex(
+      (bot) =>
+        bot.id === req.params.id &&
+        bot.ownerId === req.user.userId &&
+        bot.tenantId === req.user.tenantId
+    );
+
+    if (botIndex === -1) {
+      return res.status(404).json({
+        ok: false,
+        error: "bot_not_found",
+        message: "Bot not found or access denied",
+      });
+    }
+
+    // Check for duplicate name (only within user's own bots)
+    const duplicateBot = botsData.bots.find(
+      (bot) =>
+        bot.botName === botName &&
+        bot.ownerId === req.user.userId &&
+        bot.tenantId === req.user.tenantId &&
+        bot.id !== req.params.id
+    );
+
+    if (duplicateBot) {
+      return res.status(400).json({
+        ok: false,
+        error: "duplicate_bot",
+        message: "You already have a bot with this name",
+      });
+    }
+
+    // Update bot
+    const updatedBot = {
+      ...botsData.bots[botIndex],
+      botName,
+      model,
+      systemMessage,
+      fallback,
+      greeting: greeting || "",
+      guardrails: guardrails || "",
+      temperature: temperature || 0.7,
+      escalation,
+      files,
+      updatedAt: new Date().toISOString(),
+    };
+
+    botsData.bots[botIndex] = updatedBot;
+    await writeBots(botsData);
+
+    console.log("✅ Bot updated:", {
+      id: req.params.id,
+      botName,
+      ownerId: req.user.userId,
+    });
+
+    // 🐍 Update bot in Python RAG service
+    try {
+      const pythonResponse = await fetch(
+        `http://localhost:8000/api/bots/${req.params.id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": req.user.userId,
+            "X-Tenant-ID": req.user.tenantId,
+          },
+          body: JSON.stringify({
+            bot_name: botName,
+            system_message: systemMessage,
+            model: model,
+            fallback: fallback,
+          }),
+        }
+      );
+
+      if (pythonResponse.ok) {
+        const result = await pythonResponse.json();
+        console.log("✅ Bot updated in Python RAG service:", result.message);
+      } else {
+        const errorText = await pythonResponse.text();
+        console.warn("⚠️ Bot updated but Python RAG sync failed:", errorText);
+      }
+    } catch (pythonError) {
+      console.warn(
+        "⚠️ Bot updated but Python RAG service unavailable:",
+        pythonError.message
+      );
+    }
+
+    res.json({
+      ok: true,
+      bot: updatedBot,
+    });
+  } catch (error) {
+    console.error("[bot:update] error:", error);
+    res.status(500).json({
+      ok: false,
+      error: "server_error",
+      message: "Failed to update bot",
     });
   }
 };
@@ -190,81 +378,6 @@ export const getBot = async (req, res) => {
   }
 };
 
-// Update bot (with ownerId security)
-export const updateBot = async (req, res) => {
-  try {
-    const { botName, model, systemMessage, fallback, escalation, files } =
-      req.body;
-
-    const botsData = await readBots();
-
-    // ✅ Check both ownerId and tenantId for security
-    const botIndex = botsData.bots.findIndex(
-      (bot) =>
-        bot.id === req.params.id &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId
-    );
-
-    if (botIndex === -1) {
-      return res.status(404).json({
-        ok: false,
-        error: "bot_not_found",
-        message: "Bot not found or access denied",
-      });
-    }
-
-    // Check for duplicate name (only within user's own bots)
-    const duplicateBot = botsData.bots.find(
-      (bot) =>
-        bot.botName === botName &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId &&
-        bot.id !== req.params.id
-    );
-
-    if (duplicateBot) {
-      return res.status(400).json({
-        ok: false,
-        error: "duplicate_bot",
-        message: "You already have a bot with this name",
-      });
-    }
-
-    // Update bot
-    botsData.bots[botIndex] = {
-      ...botsData.bots[botIndex],
-      botName,
-      model,
-      systemMessage,
-      fallback,
-      escalation,
-      files,
-      updatedAt: new Date().toISOString(),
-    };
-
-    await writeBots(botsData);
-
-    console.log("✅ Bot updated:", {
-      id: req.params.id,
-      botName,
-      ownerId: req.user.userId,
-    });
-
-    res.json({
-      ok: true,
-      bot: botsData.bots[botIndex],
-    });
-  } catch (error) {
-    console.error("[bot:update] error:", error);
-    res.status(500).json({
-      ok: false,
-      error: "server_error",
-      message: "Failed to update bot",
-    });
-  }
-};
-
 // Delete bot (with ownerId security)
 export const deleteBot = async (req, res) => {
   try {
@@ -297,6 +410,36 @@ export const deleteBot = async (req, res) => {
       botName: deletedBot.botName,
       ownerId: req.user.userId,
     });
+
+    // 🐍 Delete bot from Python RAG service
+    try {
+      const pythonResponse = await fetch(
+        `http://localhost:8000/api/bots/${req.params.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "X-User-ID": req.user.userId,
+            "X-Tenant-ID": req.user.tenantId,
+          },
+        }
+      );
+
+      if (pythonResponse.ok) {
+        const result = await pythonResponse.json();
+        console.log("✅ Bot deleted from Python RAG service:", result.message);
+      } else {
+        const errorText = await pythonResponse.text();
+        console.warn(
+          "⚠️ Bot deleted but Python RAG cleanup failed:",
+          errorText
+        );
+      }
+    } catch (pythonError) {
+      console.warn(
+        "⚠️ Bot deleted but Python RAG cleanup failed:",
+        pythonError.message
+      );
+    }
 
     res.json({
       ok: true,
