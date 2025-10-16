@@ -13,6 +13,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Bot } from "lucide-react";
+import { AI_MODELS } from "@/config/models";
 
 export default function StepBotBasics() {
   const { values, update, next, prev, validateStep, validateField, errors } =
@@ -85,12 +86,15 @@ export default function StepBotBasics() {
               <SelectValue placeholder="Choose a model" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
-              <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-              <SelectItem value="claude-3-5-sonnet">
-                Claude 3.5 Sonnet
-              </SelectItem>
-              <SelectItem value="llama-3.1-70b">Llama 3.1 70B</SelectItem>
+              {AI_MODELS.map((model) => (
+                <SelectItem key={model.value} value={model.value}>
+                  {model.label}{" "}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    - {model.description}
+                  </span>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           {stepErr.model && (

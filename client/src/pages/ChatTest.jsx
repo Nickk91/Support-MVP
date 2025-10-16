@@ -1,8 +1,8 @@
 // src/pages/ChatTest.jsx
 import React from "react";
 import { useParams } from "react-router-dom";
-import ChatWidget from "../components/ChatWidget";
-import { useStore } from "../store/useStore";
+import ChatWidget from "../components/ChatWidget/ChatWidget";
+import { useStore } from "../store/useUserStore";
 
 const ChatTest = () => {
   const { botId } = useParams();

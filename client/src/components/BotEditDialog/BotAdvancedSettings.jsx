@@ -7,16 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AI_MODELS } from "@/config/models";
 
 export default function BotAdvancedSettings({ bot, onChange }) {
-  const models = [
-    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-    { value: "gpt-4", label: "GPT-4" },
-    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-    { value: "claude-3-sonnet", label: "Claude 3 Sonnet" },
-    { value: "claude-3-haiku", label: "Claude 3 Haiku" },
-  ];
-
   const handleModelChange = (value) => {
     onChange({ model: value });
   };
@@ -30,16 +23,21 @@ export default function BotAdvancedSettings({ bot, onChange }) {
       <div className="space-y-2">
         <Label htmlFor="model">AI Model</Label>
         <Select
-          value={bot?.model || "gpt-4o-mini"}
+          value={bot?.model || AI_MODELS[0].value}
           onValueChange={handleModelChange}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select a model" />
           </SelectTrigger>
           <SelectContent>
-            {models.map((model) => (
+            {AI_MODELS.map((model) => (
               <SelectItem key={model.value} value={model.value}>
-                {model.label}
+                <div className="flex flex-col">
+                  <span className="font-medium">{model.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {model.description}
+                  </span>
+                </div>
               </SelectItem>
             ))}
           </SelectContent>
