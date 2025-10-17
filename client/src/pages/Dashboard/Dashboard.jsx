@@ -1,4 +1,4 @@
-// src/pages/Dashboard/Dashboard.jsx - REFACTORED
+// src/pages/Dashboard/Dashboard.jsx - UPDATED WITH DEBUG LOGGING
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import BotCard from "../../components/BotCard/BotCard";
@@ -111,14 +111,53 @@ export default function Dashboard() {
     }
   };
 
+  // UPDATED: Enhanced handleSaveBot with comprehensive debug logging
   const handleSaveBot = async (savedBot) => {
     try {
+      console.log("🔍 DEBUG: handleSaveBot called with savedBot:", savedBot);
+      console.log("🔍 DEBUG: Files in savedBot:", savedBot.files);
+
       const endpoint = selectedBot ? `/bots/${selectedBot.id}` : "/bots";
       const method = selectedBot ? "put" : "post";
 
       console.log("💾 Saving bot to:", endpoint);
 
+      // First, create/update the bot to get the bot ID
       const response = await api[method](endpoint, savedBot);
+      const botId = response.data.bot.id;
+      console.log("🔍 DEBUG: Bot created with ID:", botId);
+
+      // In handleSaveBot - update the file upload section
+      if (savedBot.files && savedBot.files.length > 0) {
+        console.log("📁 Processing files for bot:", botId);
+        console.log("🔍 DEBUG: File metadata:", savedBot.files);
+
+        // Check if we have actual File objects
+        const hasFileObjects = savedBot.files.some(
+          (file) => file.fileObject instanceof File
+        );
+        console.log("🔍 DEBUG: Has File objects:", hasFileObjects);
+
+        try {
+          // Upload files to the server for ingestion
+          const uploadResponse = await uploadBotFiles(botId, savedBot.files);
+          console.log("✅ Files uploaded successfully:", uploadResponse.data);
+
+          // Refresh bot data to include the uploaded files
+          await fetchUserBots();
+        } catch (uploadError) {
+          console.error("❌ File upload failed:", uploadError);
+          console.error("🔍 DEBUG: Upload error details:", {
+            message: uploadError.message,
+            response: uploadError.response?.data,
+            status: uploadError.response?.status,
+          });
+
+          toast.warning("Bot created but some files failed to upload");
+        }
+      } else {
+        console.log("🔍 DEBUG: No files to upload in savedBot.files");
+      }
 
       if (selectedBot) {
         setBots((prev) =>
@@ -136,8 +175,83 @@ export default function Dashboard() {
       setSelectedBot(null);
     } catch (error) {
       console.error("Failed to save bot:", error);
+      console.error("🔍 DEBUG: Save bot error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
       const errorMessage = error.message || "Failed to save bot";
       toast.error(errorMessage);
+    }
+  };
+
+  // UPDATED: Enhanced uploadBotFiles that uses the stored file objects
+  const uploadBotFiles = async (botId, files) => {
+    console.log(
+      "🔍 DEBUG: uploadBotFiles called with botId:",
+      botId,
+      "files metadata:",
+      files
+    );
+
+    const formData = new FormData();
+    formData.append("botId", botId);
+
+    // Check if we have actual File objects in the files array
+    const filesWithObjects = files.filter(
+      (file) => file.fileObject instanceof File
+    );
+    console.log(
+      "🔍 DEBUG: Files with actual File objects:",
+      filesWithObjects.length
+    );
+
+    if (filesWithObjects.length > 0) {
+      // Use the stored File objects from the state
+      filesWithObjects.forEach((file, index) => {
+        console.log(`🔍 DEBUG: Appending file from state ${index}:`, {
+          name: file.fileObject.name,
+          size: file.fileObject.size,
+          type: file.fileObject.type,
+        });
+        formData.append("files", file.fileObject);
+      });
+
+      console.log("🔍 DEBUG: FormData entries (from state):");
+      for (let pair of formData.entries()) {
+        console.log(pair[0], pair[1]);
+      }
+
+      console.log("🔍 DEBUG: Making upload request to /uploads/files");
+      const response = await api.post("/uploads/files", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      console.log("🔍 DEBUG: Upload response received:", response.data);
+      return response;
+    } else {
+      console.warn("⚠️ No File objects found in files array");
+      console.log("🔍 DEBUG: Files array contents:", files);
+
+      // Fallback: try to find any file inputs (though this likely won't work)
+      const fileInput = document.getElementById("file-upload");
+      if (fileInput && fileInput.files && fileInput.files.length > 0) {
+        console.log("🔍 DEBUG: Found files in file input fallback");
+        Array.from(fileInput.files).forEach((file, index) => {
+          formData.append("files", file);
+        });
+        return await api.post("/uploads/files", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+      } else {
+        throw new Error(
+          "No files found to upload. File objects were not properly stored."
+        );
+      }
     }
   };
 

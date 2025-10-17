@@ -1,10 +1,12 @@
-// src/components/BotEditDialog/BotKnowledgeSettings.jsx
+// src/components/BotEditDialog/BotKnowledgeSettings.jsx - UPDATED
+import { useState, useRef } from "react"; // Add useRef
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { FileText, Upload, X } from "lucide-react";
 
 export default function BotKnowledgeSettings({ bot, onChange }) {
   const files = bot?.files || [];
+  const fileInputRef = useRef(null); // Add ref for file input
 
   const handleFileUpload = async (event) => {
     const selectedFiles = Array.from(event.target.files);
@@ -15,8 +17,10 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
       storedAs: `temp_${Date.now()}_${file.name}`,
       size: file.size,
       mimetype: file.type,
-      uploadedBy: "current-user", // This should come from auth context
-      tenantId: "current-tenant", // This should come from auth context
+      uploadedBy: "current-user",
+      tenantId: "current-tenant",
+      // Store the actual file object for upload
+      fileObject: file, // This is crucial for actual upload
     }));
 
     // Update store with new files
@@ -33,6 +37,11 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
     onChange({ files: updatedFiles });
   };
 
+  // Add manual trigger for file input
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -47,6 +56,7 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
             Drag and drop files here, or click to browse
           </p>
           <input
+            ref={fileInputRef} // Add ref here
             type="file"
             multiple
             onChange={handleFileUpload}
@@ -54,11 +64,13 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
             id="file-upload"
             accept=".pdf,.doc,.docx,.txt,.md,.csv"
           />
-          <Button asChild variant="outline">
-            <label htmlFor="file-upload" className="cursor-pointer">
-              <Upload className="h-4 w-4 mr-2" />
-              Upload Files
-            </label>
+          <Button
+            onClick={triggerFileInput} // Use onClick instead of asChild
+            variant="outline"
+            type="button"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Files
           </Button>
         </div>
       </div>
