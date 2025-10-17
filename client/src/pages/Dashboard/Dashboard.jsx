@@ -1,9 +1,9 @@
-// src/pages/Dashboard/Dashboard.jsx - UPDATED
+// src/pages/Dashboard/Dashboard.jsx - REFACTORED
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import BotCard from "../../components/BotCard/BotCard";
 import BotEditDialog from "../../components/BotEditDialog/BotEditDialog";
-import DeleteConfirmationDialog from "../../components/DeleteConfirmationDialog/DeleteConfirmationDialog"; // NEW IMPORT
+import DeleteConfirmationDialog from "../../components/DeleteConfirmationDialog/DeleteConfirmationDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -15,18 +15,16 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-
-// API base URL - adjust if needed
-const API_BASE_URL = "http://localhost:4000";
+import api from "../../lib/api"; // Import the existing axios instance
 
 export default function Dashboard() {
   const { user, token, isAuthenticated } = useAuth();
   const [bots, setBots] = useState([]);
   const [selectedBot, setSelectedBot] = useState(null);
-  const [botToDelete, setBotToDelete] = useState(null); // NEW STATE
+  const [botToDelete, setBotToDelete] = useState(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false); // NEW STATE
-  const [deleteLoading, setDeleteLoading] = useState(false); // NEW STATE
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,40 +52,24 @@ export default function Dashboard() {
       }
       setError(null);
 
-      console.log("📡 Fetching bots from:", `${API_BASE_URL}/api/bots`);
+      console.log("📡 Fetching bots from API");
+      const response = await api.get("/bots");
 
-      const response = await fetch(`${API_BASE_URL}/api/bots`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
+      console.log("✅ Bots data:", response.data);
 
-      console.log("📡 Response status:", response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("❌ Server response:", errorText);
-        throw new Error(
-          `Failed to fetch bots: ${response.status} - ${errorText}`
-        );
-      }
-
-      const data = await response.json();
-      console.log("✅ Bots data:", data);
-
-      if (data.ok) {
-        setBots(data.bots || []);
+      if (response.data.ok) {
+        setBots(response.data.bots || []);
         if (showRefresh) {
           toast.success("Bots refreshed successfully");
         }
       } else {
-        throw new Error(data.message || "Failed to fetch bots");
+        throw new Error(response.data.message || "Failed to fetch bots");
       }
     } catch (error) {
       console.error("Failed to fetch bots:", error);
-      setError(error.message);
-      toast.error("Failed to load bots");
+      const errorMessage = error.message || "Failed to load bots";
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -104,39 +86,26 @@ export default function Dashboard() {
     setEditDialogOpen(true);
   };
 
-  // NEW: Handle delete button click from BotCard
   const handleDeleteClick = (bot) => {
     setBotToDelete(bot);
     setDeleteDialogOpen(true);
   };
 
-  // NEW: Handle confirmed deletion
   const handleConfirmDelete = async (bot) => {
     if (!bot) return;
 
     setDeleteLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/bots/${bot.id}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      await api.delete(`/bots/${bot.id}`);
 
-      if (response.ok) {
-        setBots((prev) => prev.filter((b) => b.id !== bot.id));
-        toast.success(`"${bot.botName}" deleted successfully`);
-        setDeleteDialogOpen(false);
-        setBotToDelete(null);
-      } else {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to delete bot: ${response.status} - ${errorText}`
-        );
-      }
+      setBots((prev) => prev.filter((b) => b.id !== bot.id));
+      toast.success(`"${bot.botName}" deleted successfully`);
+      setDeleteDialogOpen(false);
+      setBotToDelete(null);
     } catch (error) {
       console.error("Failed to delete bot:", error);
-      toast.error("Failed to delete bot");
+      const errorMessage = error.message || "Failed to delete bot";
+      toast.error(errorMessage);
     } finally {
       setDeleteLoading(false);
     }
@@ -144,46 +113,31 @@ export default function Dashboard() {
 
   const handleSaveBot = async (savedBot) => {
     try {
-      const endpoint = selectedBot
-        ? `${API_BASE_URL}/api/bots/${selectedBot.id}`
-        : `${API_BASE_URL}/api/bots`;
-      const method = selectedBot ? "PUT" : "POST";
+      const endpoint = selectedBot ? `/bots/${selectedBot.id}` : "/bots";
+      const method = selectedBot ? "put" : "post";
 
       console.log("💾 Saving bot to:", endpoint);
 
-      const response = await fetch(endpoint, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(savedBot),
-      });
+      const response = await api[method](endpoint, savedBot);
 
-      if (response.ok) {
-        const result = await response.json();
-
-        if (selectedBot) {
-          setBots((prev) =>
-            prev.map((b) => (b.id === result.bot.id ? result.bot : b))
-          );
-          toast.success("Bot updated successfully");
-        } else {
-          setBots((prev) => [...prev, result.bot]);
-          toast.success("Bot created successfully");
-        }
-
-        setEditDialogOpen(false);
-        setSelectedBot(null);
-      } else {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to save bot: ${response.status} - ${errorText}`
+      if (selectedBot) {
+        setBots((prev) =>
+          prev.map((b) =>
+            b.id === response.data.bot.id ? response.data.bot : b
+          )
         );
+        toast.success("Bot updated successfully");
+      } else {
+        setBots((prev) => [...prev, response.data.bot]);
+        toast.success("Bot created successfully");
       }
+
+      setEditDialogOpen(false);
+      setSelectedBot(null);
     } catch (error) {
       console.error("Failed to save bot:", error);
-      toast.error("Failed to save bot");
+      const errorMessage = error.message || "Failed to save bot";
+      toast.error(errorMessage);
     }
   };
 
@@ -287,8 +241,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Active Conversations
                   </p>
-                  <p className="text-2xl font-bold text-center">0</p>{" "}
-                  {/* Placeholder - implement later */}
+                  <p className="text-2xl font-bold text-center">0</p>
                 </div>
               </div>
             </CardContent>
@@ -324,7 +277,7 @@ export default function Dashboard() {
                   key={bot.id}
                   bot={bot}
                   onEdit={() => handleEditBot(bot)}
-                  onDelete={handleDeleteClick} // UPDATED: Now passes the bot object
+                  onDelete={() => handleDeleteClick(bot)}
                 />
               ))}
             </div>
@@ -357,7 +310,7 @@ export default function Dashboard() {
           onSave={handleSaveBot}
         />
 
-        {/* NEW: Delete Confirmation Dialog */}
+        {/* Delete Confirmation Dialog */}
         <DeleteConfirmationDialog
           open={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
