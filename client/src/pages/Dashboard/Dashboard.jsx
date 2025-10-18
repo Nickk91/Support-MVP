@@ -1,4 +1,4 @@
-// src/pages/Dashboard/Dashboard.jsx - UPDATED WITH DEBUG LOGGING
+// src/pages/Dashboard/Dashboard.jsx - UPDATED WITH LOADING STATES
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import BotCard from "../../components/BotCard/BotCard";
@@ -15,7 +15,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import api from "../../lib/api"; // Import the existing axios instance
+import api from "../../lib/api";
 
 export default function Dashboard() {
   const { user, token, isAuthenticated } = useAuth();
@@ -28,6 +28,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // NEW LOADING STATES
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [fileUploadLoading, setFileUploadLoading] = useState(false);
 
   useEffect(() => {
     console.log("🔐 Dashboard Auth State:", {
@@ -47,6 +51,7 @@ export default function Dashboard() {
     try {
       if (showRefresh) {
         setRefreshing(true);
+        toast.loading("Refreshing bots...", { id: "refresh" });
       } else {
         setLoading(true);
       }
@@ -60,7 +65,7 @@ export default function Dashboard() {
       if (response.data.ok) {
         setBots(response.data.bots || []);
         if (showRefresh) {
-          toast.success("Bots refreshed successfully");
+          toast.success("Bots refreshed successfully", { id: "refresh" });
         }
       } else {
         throw new Error(response.data.message || "Failed to fetch bots");
@@ -69,7 +74,7 @@ export default function Dashboard() {
       console.error("Failed to fetch bots:", error);
       const errorMessage = error.message || "Failed to load bots";
       setError(errorMessage);
-      toast.error(errorMessage);
+      toast.error(errorMessage, { id: showRefresh ? "refresh" : undefined });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -94,25 +99,43 @@ export default function Dashboard() {
   const handleConfirmDelete = async (bot) => {
     if (!bot) return;
 
+    console.log("🔍 DEBUG: Starting deletion for bot:", bot.id);
     setDeleteLoading(true);
+
+    toast.loading(`Deleting "${bot.botName}"...`, { id: "bot-delete" });
+
     try {
       await api.delete(`/bots/${bot.id}`);
+      console.log("🔍 DEBUG: Bot deletion API call completed for:", bot.id);
 
-      setBots((prev) => prev.filter((b) => b.id !== bot.id));
-      toast.success(`"${bot.botName}" deleted successfully`);
+      // Remove from local state
+      setBots((prev) => {
+        const newBots = prev.filter((b) => b.id !== bot.id);
+        console.log(
+          "🔍 DEBUG: Local state updated, remaining bots:",
+          newBots.length
+        );
+        return newBots;
+      });
+
+      toast.success(`"${bot.botName}" deleted successfully`, {
+        id: "bot-delete",
+      });
+
       setDeleteDialogOpen(false);
       setBotToDelete(null);
     } catch (error) {
-      console.error("Failed to delete bot:", error);
+      console.error("🔍 DEBUG: Delete failed for bot:", bot.id, error);
       const errorMessage = error.message || "Failed to delete bot";
-      toast.error(errorMessage);
+      toast.error(errorMessage, { id: "bot-delete" });
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  // UPDATED: Enhanced handleSaveBot with comprehensive debug logging
   const handleSaveBot = async (savedBot) => {
+    setSaveLoading(true);
+
     try {
       console.log("🔍 DEBUG: handleSaveBot called with savedBot:", savedBot);
       console.log("🔍 DEBUG: Files in savedBot:", savedBot.files);
@@ -122,29 +145,73 @@ export default function Dashboard() {
 
       console.log("💾 Saving bot to:", endpoint);
 
+      // Show loading for bot creation
+      toast.loading(selectedBot ? "Updating bot..." : "Creating bot...", {
+        id: "bot-save",
+      });
+
       // First, create/update the bot to get the bot ID
       const response = await api[method](endpoint, savedBot);
       const botId = response.data.bot.id;
       console.log("🔍 DEBUG: Bot created with ID:", botId);
 
-      // In handleSaveBot - update the file upload section
+      // Update success message
+      toast.success(
+        selectedBot ? "Bot updated successfully!" : "Bot created successfully!",
+        {
+          id: "bot-save",
+        }
+      );
+
+      // Update local state immediately with the new bot
+      if (selectedBot) {
+        setBots((prev) =>
+          prev.map((b) =>
+            b.id === response.data.bot.id ? response.data.bot : b
+          )
+        );
+      } else {
+        setBots((prev) => {
+          // Check if bot already exists to prevent duplicates
+          const exists = prev.some((bot) => bot.id === response.data.bot.id);
+          if (exists) {
+            return prev.map((bot) =>
+              bot.id === response.data.bot.id ? response.data.bot : bot
+            );
+          } else {
+            return [...prev, response.data.bot];
+          }
+        });
+      }
+
+      // If there are files to upload, process them
       if (savedBot.files && savedBot.files.length > 0) {
         console.log("📁 Processing files for bot:", botId);
         console.log("🔍 DEBUG: File metadata:", savedBot.files);
 
-        // Check if we have actual File objects
-        const hasFileObjects = savedBot.files.some(
-          (file) => file.fileObject instanceof File
-        );
-        console.log("🔍 DEBUG: Has File objects:", hasFileObjects);
+        setFileUploadLoading(true);
 
         try {
+          // Show loading for file upload
+          toast.loading("Uploading and processing files...", {
+            id: "file-upload",
+          });
+
           // Upload files to the server for ingestion
           const uploadResponse = await uploadBotFiles(botId, savedBot.files);
           console.log("✅ Files uploaded successfully:", uploadResponse.data);
 
-          // Refresh bot data to include the uploaded files
-          await fetchUserBots();
+          // Success message for file upload
+          const processedCount =
+            uploadResponse.data.totalProcessed ||
+            uploadResponse.data.files?.length ||
+            0;
+          toast.success(
+            `Files uploaded successfully! Processed ${processedCount} files.`,
+            {
+              id: "file-upload",
+            }
+          );
         } catch (uploadError) {
           console.error("❌ File upload failed:", uploadError);
           console.error("🔍 DEBUG: Upload error details:", {
@@ -153,24 +220,14 @@ export default function Dashboard() {
             status: uploadError.response?.status,
           });
 
+          toast.error("File upload failed", { id: "file-upload" });
           toast.warning("Bot created but some files failed to upload");
+        } finally {
+          setFileUploadLoading(false);
         }
-      } else {
-        console.log("🔍 DEBUG: No files to upload in savedBot.files");
       }
 
-      if (selectedBot) {
-        setBots((prev) =>
-          prev.map((b) =>
-            b.id === response.data.bot.id ? response.data.bot : b
-          )
-        );
-        toast.success("Bot updated successfully");
-      } else {
-        setBots((prev) => [...prev, response.data.bot]);
-        toast.success("Bot created successfully");
-      }
-
+      // Close the dialog immediately after bot creation
       setEditDialogOpen(false);
       setSelectedBot(null);
     } catch (error) {
@@ -180,12 +237,14 @@ export default function Dashboard() {
         response: error.response?.data,
         status: error.response?.status,
       });
+
       const errorMessage = error.message || "Failed to save bot";
-      toast.error(errorMessage);
+      toast.error(errorMessage, { id: "bot-save" });
+    } finally {
+      setSaveLoading(false);
     }
   };
 
-  // UPDATED: Enhanced uploadBotFiles that uses the stored file objects
   const uploadBotFiles = async (botId, files) => {
     console.log(
       "🔍 DEBUG: uploadBotFiles called with botId:",
@@ -235,7 +294,7 @@ export default function Dashboard() {
       console.warn("⚠️ No File objects found in files array");
       console.log("🔍 DEBUG: Files array contents:", files);
 
-      // Fallback: try to find any file inputs (though this likely won't work)
+      // Fallback: try to find any file inputs
       const fileInput = document.getElementById("file-upload");
       if (fileInput && fileInput.files && fileInput.files.length > 0) {
         console.log("🔍 DEBUG: Found files in file input fallback");
@@ -287,9 +346,15 @@ export default function Dashboard() {
                 Failed to load bots
               </h3>
               <p className="text-red-600 mb-4">{error}</p>
-              <Button onClick={handleRefresh} variant="outline">
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Try Again
+              <Button
+                onClick={handleRefresh}
+                variant="outline"
+                disabled={refreshing}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
+                />
+                {refreshing ? "Refreshing..." : "Try Again"}
               </Button>
             </CardContent>
           </Card>
@@ -315,14 +380,14 @@ export default function Dashboard() {
             <Button
               variant="outline"
               onClick={handleRefresh}
-              disabled={refreshing}
+              disabled={refreshing || saveLoading}
             >
               <RefreshCw
                 className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
               />
-              Refresh
+              {refreshing ? "Refreshing..." : "Refresh"}
             </Button>
-            <Button onClick={handleCreateBot}>
+            <Button onClick={handleCreateBot} disabled={saveLoading}>
               <Plus className="h-4 w-4 mr-2" />
               New Bot
             </Button>
@@ -408,7 +473,7 @@ export default function Dashboard() {
                 Create your first AI assistant to get started with customer
                 support automation
               </p>
-              <Button onClick={handleCreateBot}>
+              <Button onClick={handleCreateBot} disabled={saveLoading}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Your First Bot
               </Button>
@@ -422,6 +487,8 @@ export default function Dashboard() {
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
           onSave={handleSaveBot}
+          saveLoading={saveLoading}
+          fileUploadLoading={fileUploadLoading}
         />
 
         {/* Delete Confirmation Dialog */}

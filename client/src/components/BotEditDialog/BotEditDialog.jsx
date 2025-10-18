@@ -1,4 +1,4 @@
-// src/components/BotEditDialog/BotEditDialog.jsx - UPDATED
+// src/components/BotEditDialog/BotEditDialog.jsx - UPDATED WITH LOADING STATES
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import BotBasicSettings from "./BotBasicSettings";
 import BotBehaviorSettings from "./BotBehaviorSettings";
 import BotKnowledgeSettings from "./BotKnowledgeSettings";
@@ -21,7 +21,14 @@ const STEPS = [
   { id: "advanced", label: "Advanced", component: BotAdvancedSettings },
 ];
 
-export default function BotEditDialog({ bot, open, onOpenChange, onSave }) {
+export default function BotEditDialog({
+  bot,
+  open,
+  onOpenChange,
+  onSave,
+  saveLoading = false,
+  fileUploadLoading = false,
+}) {
   const isNew = !bot;
 
   // Get store state and actions
@@ -47,22 +54,35 @@ export default function BotEditDialog({ bot, open, onOpenChange, onSave }) {
   }, [open, bot, updateFormData]);
 
   const handleSave = () => {
+    console.log("🔍 DEBUG: handleSave called - creating/updating bot");
     onSave(formData);
     resetStore(); // Reset store after saving
   };
 
   const handleClose = () => {
-    resetStore(); // Reset store when closing
-    onOpenChange(false);
+    if (!saveLoading && !fileUploadLoading) {
+      resetStore(); // Reset store when closing
+      onOpenChange(false);
+    }
   };
 
   const nextStep = () => {
+    console.log(
+      `🔍 DEBUG: Moving from step ${currentStep} to ${currentStep + 1}`
+    );
+    console.log(
+      `🔍 DEBUG: isStepValid: ${isStepValid()}, isLastStep: ${isLastStep}`
+    );
+
     if (isStepValid() && currentStep < STEPS.length - 1) {
       storeNextStep();
     }
   };
 
   const prevStep = () => {
+    console.log(
+      `🔍 DEBUG: Moving from step ${currentStep} to ${currentStep - 1}`
+    );
     storePrevStep();
   };
 
@@ -74,7 +94,6 @@ export default function BotEditDialog({ bot, open, onOpenChange, onSave }) {
             {isNew ? "Create New Bot" : `Edit ${bot.botName}`}
           </DialogTitle>
         </DialogHeader>
-
         {/* Step Progress Indicator */}
         <div className="flex items-center justify-between mb-6">
           {STEPS.map((step, index) => (
@@ -116,17 +135,35 @@ export default function BotEditDialog({ bot, open, onOpenChange, onSave }) {
             </div>
           ))}
         </div>
-
         {/* Current Step Content */}
-        <div className="min-h-[300px]">
+        <div className="min-h-[300px] relative">
           <CurrentStepComponent bot={formData} onChange={updateFormData} />
-        </div>
 
+          {/* FILE UPLOAD LOADING OVERLAY */}
+          {fileUploadLoading && (
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg z-10">
+              <div className="text-center p-6 bg-white rounded-lg shadow-lg border">
+                <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+                <h4 className="font-medium mb-1">Processing Files</h4>
+                <p className="text-sm text-muted-foreground">
+                  Uploading and ingesting files into knowledge base...
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This may take a few moments depending on file size
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
         {/* Navigation Buttons */}
         <div className="flex justify-between pt-4 border-t">
           <div>
             {currentStep > 0 && (
-              <Button variant="outline" onClick={prevStep}>
+              <Button
+                variant="outline"
+                onClick={prevStep}
+                disabled={saveLoading || fileUploadLoading}
+              >
                 <ChevronLeft className="h-4 w-4 mr-2" />
                 Previous
               </Button>
@@ -134,22 +171,61 @@ export default function BotEditDialog({ bot, open, onOpenChange, onSave }) {
           </div>
 
           <div className="flex space-x-3">
-            <Button variant="outline" onClick={handleClose}>
+            <Button
+              variant="outline"
+              onClick={handleClose}
+              disabled={saveLoading || fileUploadLoading}
+            >
               Cancel
             </Button>
 
             {!isLastStep ? (
-              <Button onClick={nextStep} disabled={!isStepValid()}>
+              <Button
+                onClick={nextStep}
+                disabled={!isStepValid() || saveLoading || fileUploadLoading}
+              >
                 Next Step
                 <ChevronRight className="h-4 w-4 ml-2" />
               </Button>
             ) : (
-              <Button onClick={handleSave} disabled={!isStepValid()}>
-                {isNew ? "Create Bot" : "Save Changes"}
+              <Button
+                onClick={handleSave}
+                disabled={!isStepValid() || saveLoading || fileUploadLoading}
+                className="min-w-[120px]"
+              >
+                {saveLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    {isNew ? "Creating..." : "Saving..."}
+                  </>
+                ) : fileUploadLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>{isNew ? "Create Bot" : "Save Changes"}</>
+                )}
               </Button>
             )}
           </div>
         </div>
+        {/* BOT CREATION LOADING OVERLAY */}
+        {saveLoading && !fileUploadLoading && (
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg z-20">
+            <div className="text-center p-6 bg-white rounded-lg shadow-lg border">
+              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+              <h4 className="font-medium mb-1">
+                {isNew ? "Creating Bot" : "Updating Bot"}
+              </h4>
+              <p className="text-sm text-muted-foreground">
+                {isNew
+                  ? "Setting up your new AI assistant..."
+                  : "Saving your changes..."}
+              </p>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
