@@ -379,6 +379,9 @@ export const getBot = async (req, res) => {
 };
 
 // Delete bot (with ownerId security)
+// server/src/controllers/botController.js - UPDATE deleteBot function
+
+// Delete bot (with ownerId security)
 export const deleteBot = async (req, res) => {
   try {
     const botsData = await readBots();
@@ -401,7 +404,23 @@ export const deleteBot = async (req, res) => {
 
     const deletedBot = botsData.bots[botIndex];
 
-    // Remove bot
+    // 🗂️ Delete uploaded files from server file system
+    if (deletedBot.files && deletedBot.files.length > 0) {
+      try {
+        await deleteBotFiles(deletedBot.files);
+        console.log(
+          `✅ Deleted ${deletedBot.files.length} files for bot ${deletedBot.id}`
+        );
+      } catch (fileError) {
+        console.warn(
+          `⚠️ File cleanup failed for bot ${deletedBot.id}:`,
+          fileError.message
+        );
+        // Continue with bot deletion even if file cleanup fails
+      }
+    }
+
+    // Remove bot from database
     botsData.bots.splice(botIndex, 1);
     await writeBots(botsData);
 
@@ -409,6 +428,7 @@ export const deleteBot = async (req, res) => {
       id: req.params.id,
       botName: deletedBot.botName,
       ownerId: req.user.userId,
+      filesDeleted: deletedBot.files?.length || 0,
     });
 
     // 🐍 Delete bot from Python RAG service
@@ -444,6 +464,11 @@ export const deleteBot = async (req, res) => {
     res.json({
       ok: true,
       message: "Bot deleted successfully",
+      deletedBot: {
+        id: deletedBot.id,
+        botName: deletedBot.botName,
+        filesDeleted: deletedBot.files?.length || 0,
+      },
     });
   } catch (error) {
     console.error("[bot:delete] error:", error);
@@ -454,3 +479,46 @@ export const deleteBot = async (req, res) => {
     });
   }
 };
+
+// Helper function to delete physical files
+async function deleteBotFiles(files) {
+  const deletePromises = files.map(async (file) => {
+    try {
+      // Files are stored in the uploads directory with the storedAs filename
+      if (file.storedAs) {
+        const filePath = path.join(process.cwd(), "uploads", file.storedAs);
+
+        // Check if file exists before trying to delete
+        try {
+          await fs.access(filePath);
+          await fs.unlink(filePath);
+          console.log(`✅ Deleted file: ${file.storedAs}`);
+          return { success: true, file: file.storedAs };
+        } catch (error) {
+          if (error.code === "ENOENT") {
+            console.log(`ℹ️ File already deleted: ${file.storedAs}`);
+            return { success: true, file: file.storedAs, alreadyGone: true };
+          }
+          throw error;
+        }
+      }
+    } catch (error) {
+      console.error(
+        `❌ Failed to delete file ${file.storedAs}:`,
+        error.message
+      );
+      return { success: false, file: file.storedAs, error: error.message };
+    }
+  });
+
+  const results = await Promise.all(deletePromises);
+
+  const successful = results.filter((r) => r.success).length;
+  const failed = results.filter((r) => !r.success).length;
+
+  console.log(
+    `📊 File deletion results: ${successful} successful, ${failed} failed`
+  );
+
+  return results;
+}

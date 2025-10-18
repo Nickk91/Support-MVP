@@ -82,18 +82,32 @@ async def update_bot(
         logger.error(f"❌ Failed to update bot: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update bot: {str(e)}")
 
+# python/app/routers/bots.py - UPDATE the delete_bot function
 @router.delete("/bots/{bot_id}")
 async def delete_bot(
     bot_id: str,
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None)
 ):
-    """Delete a bot from the Python RAG service"""
+    """Delete a bot from the Python RAG service and clean up vector store"""
     try:
         if bot_id not in bots_store:
             raise HTTPException(status_code=404, detail="Bot not found")
         
         bot_name = bots_store[bot_id]["bot_name"]
+        
+        # Delete vector store data for this bot
+        try:
+            from app.rag.vectorstore import delete_vectorstore
+            success = delete_vectorstore(bot_id)
+            if success:
+                logger.info(f"✅ Vector store cleaned up for bot: {bot_name} (ID: {bot_id})")
+            else:
+                logger.warning(f"⚠️ Vector store cleanup may have failed for bot {bot_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Vector store cleanup failed for bot {bot_id}: {e}")
+        
+        # Remove bot from memory store
         del bots_store[bot_id]
         
         logger.info(f"🗑️ Bot deleted from Python RAG: {bot_name} (ID: {bot_id})")
@@ -109,7 +123,8 @@ async def delete_bot(
     except Exception as e:
         logger.error(f"❌ Failed to delete bot: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete bot: {str(e)}")
-
+    
+    
 @router.get("/bots/{bot_id}")
 async def get_bot(
     bot_id: str,

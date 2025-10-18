@@ -10,6 +10,14 @@ from langchain_community.vectorstores import Chroma, FAISS
 from langchain_core.documents import Document
 
 
+import logging
+import shutil
+
+
+# Add logger definition
+logger = logging.getLogger(__name__)
+
+
 # ---------- Paths ----------
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
@@ -116,3 +124,65 @@ def get_vectorstore(bot_id: str, backend: str = None) -> object:
     backend_name = _resolve_backend_name(backend)
     store_factory = _BACKENDS[backend_name]
     return store_factory(bot_id)
+
+
+# python/app/rag/vectorstore.py - ADD this function
+def delete_vectorstore(bot_id: str) -> bool:
+    """Delete all vector store data for a specific bot"""
+    try:
+        # Get the backend type to know which cleanup method to use
+        backend_name = _resolve_backend_name()
+        
+        if backend_name == "chroma":
+            # First, try to get the store and close any connections
+            try:
+                store = get_chroma_store(bot_id)
+                # Try to close any open connections
+                if hasattr(store, '_client'):
+                    store._client.clear_system_cache()
+                if hasattr(store, 'persist_directory'):
+                    # Force close any open file handles
+                    import gc
+                    gc.collect()
+            except Exception as e:
+                logger.warning(f"⚠️ Could not cleanly close Chroma store: {e}")
+            
+            # Now delete the directory
+            chroma_dir = VECTORDIR / bot_id / "chroma"
+            if chroma_dir.exists():
+                # Use a retry mechanism for file locks
+                import time
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        shutil.rmtree(chroma_dir)
+                        logger.info(f"✅ Deleted ChromaDB directory: {chroma_dir}")
+                        return True
+                    except PermissionError as e:
+                        if attempt < max_retries - 1:
+                            logger.warning(f"⚠️ File locked, retrying... (attempt {attempt + 1})")
+                            time.sleep(1)  # Wait 1 second before retry
+                        else:
+                            logger.error(f"❌ Failed to delete ChromaDB directory after {max_retries} attempts: {e}")
+                            return False
+            else:
+                logger.info(f"ℹ️ No ChromaDB directory found for bot {bot_id}")
+                return True
+                
+        elif backend_name == "faiss":
+            # Delete FAISS persistence directory
+            faiss_dir = VECTORDIR / bot_id / "faiss"
+            if faiss_dir.exists():
+                shutil.rmtree(faiss_dir)
+                logger.info(f"✅ Deleted FAISS directory: {faiss_dir}")
+                return True
+            else:
+                logger.info(f"ℹ️ No FAISS directory found for bot {bot_id}")
+                return True
+        else:
+            logger.warning(f"⚠️ Unknown backend {backend_name}, cannot cleanup vector store")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to delete vector store for bot {bot_id}: {e}")
+        return False
