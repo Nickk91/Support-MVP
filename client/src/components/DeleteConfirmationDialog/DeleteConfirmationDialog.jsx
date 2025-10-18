@@ -44,11 +44,7 @@ export default function DeleteConfirmationDialog({
           >
             Cancel
           </Button>
-          <Button
-            variant="destructive"
-            onClick={handleConfirm}
-            disabled={loading}
-          >
+          <Button variant="outline" onClick={handleConfirm} disabled={loading}>
             {loading ? "Deleting..." : "Delete Bot"}
           </Button>
         </DialogFooter>

@@ -130,6 +130,7 @@ export default function Dashboard() {
       toast.error(errorMessage, { id: "bot-delete" });
     } finally {
       setDeleteLoading(false);
+      setDeleteDialogOpen(false);
     }
   };
 
