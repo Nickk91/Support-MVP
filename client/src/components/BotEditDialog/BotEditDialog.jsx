@@ -1,4 +1,4 @@
-// src/components/BotEditDialog/BotEditDialog.jsx - UPDATED WITH LOADING STATES
+// UPDATED BotEditDialog.jsx with fixed step navigation
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -54,36 +54,66 @@ export default function BotEditDialog({
   }, [open, bot, updateFormData]);
 
   const handleSave = () => {
-    console.log("🔍 DEBUG: handleSave called - creating/updating bot");
-    onSave(formData);
-    resetStore(); // Reset store after saving
+    if (isStepValid()) {
+      onSave(formData);
+      resetStore();
+    } else {
+    }
   };
 
   const handleClose = () => {
     if (!saveLoading && !fileUploadLoading) {
-      resetStore(); // Reset store when closing
+      resetStore();
       onOpenChange(false);
     }
   };
 
   const nextStep = () => {
-    console.log(
-      `🔍 DEBUG: Moving from step ${currentStep} to ${currentStep + 1}`
-    );
-    console.log(
-      `🔍 DEBUG: isStepValid: ${isStepValid()}, isLastStep: ${isLastStep}`
-    );
-
     if (isStepValid() && currentStep < STEPS.length - 1) {
       storeNextStep();
+    } else {
     }
   };
 
   const prevStep = () => {
-    console.log(
-      `🔍 DEBUG: Moving from step ${currentStep} to ${currentStep - 1}`
-    );
     storePrevStep();
+  };
+
+  // Determine button text and state
+  const getActionButton = () => {
+    if (!isLastStep) {
+      return (
+        <Button
+          onClick={nextStep}
+          disabled={!isStepValid() || saveLoading || fileUploadLoading}
+        >
+          Next Step
+          <ChevronRight className="h-4 w-4 ml-2" />
+        </Button>
+      );
+    } else {
+      return (
+        <Button
+          onClick={handleSave}
+          disabled={!isStepValid() || saveLoading || fileUploadLoading}
+          className="min-w-[120px]"
+        >
+          {saveLoading ? (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              {isNew ? "Creating..." : "Saving..."}
+            </>
+          ) : fileUploadLoading ? (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            <>{isNew ? "Create Bot" : "Save Changes"}</>
+          )}
+        </Button>
+      );
+    }
   };
 
   return (
@@ -94,6 +124,7 @@ export default function BotEditDialog({
             {isNew ? "Create New Bot" : `Edit ${bot.botName}`}
           </DialogTitle>
         </DialogHeader>
+
         {/* Step Progress Indicator */}
         <div className="flex items-center justify-between mb-6">
           {STEPS.map((step, index) => (
@@ -135,6 +166,20 @@ export default function BotEditDialog({
             </div>
           ))}
         </div>
+
+        {/* Step Info Debug */}
+        <div className="mb-4 p-2 bg-blue-50 rounded text-sm">
+          <span className="font-medium">
+            Step {currentStep + 1} of {STEPS.length}:
+          </span>{" "}
+          {STEPS[currentStep].label}
+          {!isStepValid() && (
+            <span className="ml-2 text-orange-600">
+              (Please complete required fields)
+            </span>
+          )}
+        </div>
+
         {/* Current Step Content */}
         <div className="min-h-[300px] relative">
           <CurrentStepComponent bot={formData} onChange={updateFormData} />
@@ -148,13 +193,11 @@ export default function BotEditDialog({
                 <p className="text-sm text-muted-foreground">
                   Uploading and ingesting files into knowledge base...
                 </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  This may take a few moments depending on file size
-                </p>
               </div>
             </div>
           )}
         </div>
+
         {/* Navigation Buttons */}
         <div className="flex justify-between pt-4 border-t">
           <div>
@@ -179,37 +222,10 @@ export default function BotEditDialog({
               Cancel
             </Button>
 
-            {!isLastStep ? (
-              <Button
-                onClick={nextStep}
-                disabled={!isStepValid() || saveLoading || fileUploadLoading}
-              >
-                Next Step
-                <ChevronRight className="h-4 w-4 ml-2" />
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSave}
-                disabled={!isStepValid() || saveLoading || fileUploadLoading}
-                className="min-w-[120px]"
-              >
-                {saveLoading ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    {isNew ? "Creating..." : "Saving..."}
-                  </>
-                ) : fileUploadLoading ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>{isNew ? "Create Bot" : "Save Changes"}</>
-                )}
-              </Button>
-            )}
+            {getActionButton()}
           </div>
         </div>
+
         {/* BOT CREATION LOADING OVERLAY */}
         {saveLoading && !fileUploadLoading && (
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg z-20">

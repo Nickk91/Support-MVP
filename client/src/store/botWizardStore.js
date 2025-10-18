@@ -47,20 +47,25 @@ export const useBotWizardStore = create((set, get) => ({
     }),
 
   // Validation for current step
+  // In your botWizardStore - UPDATE isStepValid function
   isStepValid: () => {
-    const { formData, currentStep } = get();
+    const { currentStep, formData } = get();
 
     switch (currentStep) {
-      case 0: // Basic
-        return formData.botName && formData.model;
-      case 1: // Behavior
-        return formData.fallback;
-      case 2: // Knowledge
-        return true; // Files are optional
-      case 3: // Advanced
-        return true; // Advanced settings are optional
-      default:
+      case 0: // Basic Settings - only botName is required
+        return !!(formData.botName && formData.botName.trim().length > 0);
+
+      case 1: // Behavior Settings - all fields are optional
         return true;
+
+      case 2: // Knowledge Settings - files are optional
+        return true;
+
+      case 3: // Advanced Settings - all fields have defaults
+        return true;
+
+      default:
+        return false;
     }
   },
 }));
