@@ -20,7 +20,7 @@ async function readUsers() {
   }
 }
 
-async function readBots() {
+export async function readBots() {
   try {
     const data = await fs.readFile(BOTS_FILE, "utf8");
     return JSON.parse(data);
@@ -29,7 +29,7 @@ async function readBots() {
   }
 }
 
-async function writeBots(botsData) {
+export async function writeBots(botsData) {
   await fs.writeFile(BOTS_FILE, JSON.stringify(botsData, null, 2));
 }
 
@@ -379,9 +379,6 @@ export const getBot = async (req, res) => {
 };
 
 // Delete bot (with ownerId security)
-// server/src/controllers/botController.js - UPDATE deleteBot function
-
-// Delete bot (with ownerId security)
 export const deleteBot = async (req, res) => {
   try {
     const botsData = await readBots();
@@ -481,26 +478,94 @@ export const deleteBot = async (req, res) => {
 };
 
 // Helper function to delete physical files
+// server/src/controllers/botController.js - UPDATE deleteBotFiles function
+
+// Helper function to delete physical files
 async function deleteBotFiles(files) {
+  console.log(`🗑️ Starting file deletion for ${files.length} files...`);
+
   const deletePromises = files.map(async (file) => {
     try {
       // Files are stored in the uploads directory with the storedAs filename
       if (file.storedAs) {
-        const filePath = path.join(process.cwd(), "uploads", file.storedAs);
+        // Use the same path resolution as in uploadController
+        const UPLOAD_DIR = path.resolve(
+          process.cwd(),
+          process.env.UPLOAD_DIR || "uploads"
+        );
+        const filePath = path.join(UPLOAD_DIR, file.storedAs);
+
+        console.log(`🔍 Attempting to delete file: ${filePath}`);
+        console.log(`📁 File record:`, {
+          original: file.filename,
+          storedAs: file.storedAs,
+          path: file.path,
+        });
 
         // Check if file exists before trying to delete
         try {
           await fs.access(filePath);
+          console.log(`📁 File exists, deleting: ${file.storedAs}`);
           await fs.unlink(filePath);
-          console.log(`✅ Deleted file: ${file.storedAs}`);
+          console.log(`✅ Successfully deleted file: ${file.storedAs}`);
           return { success: true, file: file.storedAs };
         } catch (error) {
           if (error.code === "ENOENT") {
-            console.log(`ℹ️ File already deleted: ${file.storedAs}`);
+            console.log(
+              `ℹ️ File already deleted or not found: ${file.storedAs}`
+            );
+            // Also check if the file might be at the path stored in the file record
+            if (file.path && file.path !== filePath) {
+              try {
+                await fs.access(file.path);
+                console.log(`🔍 Found file at alternative path: ${file.path}`);
+                await fs.unlink(file.path);
+                console.log(
+                  `✅ Successfully deleted file from alternative path: ${file.path}`
+                );
+                return {
+                  success: true,
+                  file: file.storedAs,
+                  alternativePath: true,
+                };
+              } catch (altError) {
+                // Ignore alternative path errors
+              }
+            }
             return { success: true, file: file.storedAs, alreadyGone: true };
+          } else if (error.code === "EPERM" || error.code === "EBUSY") {
+            console.warn(
+              `⚠️ File locked or permission denied: ${file.storedAs}`
+            );
+            // Try again with a small delay
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            try {
+              await fs.unlink(filePath);
+              console.log(
+                `✅ Successfully deleted file on retry: ${file.storedAs}`
+              );
+              return { success: true, file: file.storedAs, retry: true };
+            } catch (retryError) {
+              console.error(
+                `❌ Still cannot delete file: ${file.storedAs}`,
+                retryError.message
+              );
+              return {
+                success: false,
+                file: file.storedAs,
+                error: retryError.message,
+              };
+            }
           }
           throw error;
         }
+      } else {
+        console.warn(`⚠️ File record missing storedAs field:`, file);
+        return {
+          success: false,
+          file: file.filename,
+          error: "Missing storedAs field",
+        };
       }
     } catch (error) {
       console.error(
@@ -517,8 +582,115 @@ async function deleteBotFiles(files) {
   const failed = results.filter((r) => !r.success).length;
 
   console.log(
-    `📊 File deletion results: ${successful} successful, ${failed} failed`
+    `📊 File deletion summary: ${successful} successful, ${failed} failed out of ${files.length} total`
   );
+
+  // Log detailed results
+  results.forEach((result) => {
+    if (!result.success) {
+      console.error(`❌ Failed: ${result.file} - ${result.error}`);
+    }
+  });
 
   return results;
 }
+
+// server/src/controllers/botController.js - ADD this debug function
+
+// Debug endpoint to check uploads folder (remove in production)
+export const debugUploads = async (req, res) => {
+  try {
+    const UPLOAD_DIR = path.resolve(
+      process.cwd(),
+      process.env.UPLOAD_DIR || "uploads"
+    );
+
+    console.log(`🔍 Checking uploads directory: ${UPLOAD_DIR}`);
+
+    // Check if directory exists
+    const dirExists = await fs
+      .access(UPLOAD_DIR)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!dirExists) {
+      return res.json({
+        ok: true,
+        message: "Uploads directory does not exist",
+        path: UPLOAD_DIR,
+        files: [],
+      });
+    }
+
+    // Read directory contents
+    const files = await fs.readdir(UPLOAD_DIR);
+    const fileDetails = await Promise.all(
+      files.map(async (filename) => {
+        try {
+          const filePath = path.join(UPLOAD_DIR, filename);
+          const stats = await fs.stat(filePath);
+          return {
+            filename,
+            path: filePath,
+            size: stats.size,
+            isFile: stats.isFile(),
+            modified: stats.mtime,
+          };
+        } catch (error) {
+          return {
+            filename,
+            error: error.message,
+          };
+        }
+      })
+    );
+
+    res.json({
+      ok: true,
+      path: UPLOAD_DIR,
+      totalFiles: files.length,
+      files: fileDetails,
+    });
+  } catch (error) {
+    console.error("Debug uploads error:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+};
+
+export const cleanupUploads = async (req, res) => {
+  try {
+    const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
+    const files = await fs.readdir(UPLOAD_DIR);
+
+    console.log(`🧹 Cleaning up ${files.length} files from uploads folder`);
+
+    const deletionResults = [];
+    for (const filename of files) {
+      try {
+        const filePath = path.join(UPLOAD_DIR, filename);
+        await fs.unlink(filePath);
+        deletionResults.push({ filename, success: true });
+        console.log(`✅ Deleted: ${filename}`);
+      } catch (error) {
+        deletionResults.push({
+          filename,
+          success: false,
+          error: error.message,
+        });
+        console.log(`❌ Failed to delete: ${filename} - ${error.message}`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: `Cleaned up ${files.length} files`,
+      results: deletionResults,
+    });
+  } catch (error) {
+    console.error("Cleanup error:", error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};

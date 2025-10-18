@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { nanoid } from "nanoid";
 import pythonService from "../../services/pythonService.js";
 import axios from "axios";
+import { readBots, writeBots } from "./botController.js";
 
 // Configure multer (moved from routes)
 const UPLOAD_DIR = path.resolve(
@@ -44,10 +45,28 @@ export const upload = multer({
   },
 });
 
-// File upload handler
-// File upload handler - ENHANCED
 export const uploadFiles = async (req, res, next) => {
+  // Track if we've started processing to avoid duplicates
+  let processingStarted = false;
+  const processedFiles = []; // Track files we've processed
+
   try {
+    console.log("=== UPLOAD DEBUG START ===");
+    console.log("Request body:", req.body);
+    console.log(
+      "Request files:",
+      req.files
+        ? req.files.map((f) => ({
+            originalname: f.originalname,
+            filename: f.filename,
+            path: f.path,
+            size: f.size,
+          }))
+        : "No files"
+    );
+    console.log("User:", req.user);
+    console.log("=== UPLOAD DEBUG END ===");
+
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         ok: false,
@@ -56,8 +75,15 @@ export const uploadFiles = async (req, res, next) => {
       });
     }
 
+    console.log(
+      `📁 Received ${req.files.length} files from multer:`,
+      req.files.map((f) => ({ original: f.originalname, stored: f.filename }))
+    );
+
     const { botId } = req.body;
     if (!botId) {
+      // Clean up uploaded files if botId is missing
+      await cleanupFiles(req.files);
       return res.status(400).json({
         ok: false,
         error: "missing_bot_id",
@@ -65,13 +91,25 @@ export const uploadFiles = async (req, res, next) => {
       });
     }
 
+    processingStarted = true;
     const results = [];
     const fileRecords = [];
 
     // Process each file with Python RAG service
     for (const file of req.files) {
       try {
-        // Call Python ingest service
+        console.log(
+          `🔍 Processing file: ${file.originalname} -> ${file.filename}`
+        );
+
+        // Check if this file was already processed (in case of retry)
+        if (processedFiles.includes(file.filename)) {
+          console.log(`⚠️ File ${file.filename} already processed, skipping`);
+          continue;
+        }
+
+        processedFiles.push(file.filename);
+
         const pythonResponse = await axios.post(
           "http://localhost:8000/api/ingest",
           {
@@ -82,7 +120,7 @@ export const uploadFiles = async (req, res, next) => {
           }
         );
 
-        // Create file record for bot
+        // Create file record
         const fileRecord = {
           filename: file.originalname,
           storedAs: file.filename,
@@ -91,24 +129,38 @@ export const uploadFiles = async (req, res, next) => {
           uploadedBy: req.user.userId,
           tenantId: req.user.tenantId,
           path: file.path,
+          uploadedAt: new Date().toISOString(),
         };
 
         fileRecords.push(fileRecord);
 
         results.push({
           filename: file.originalname,
+          storedAs: file.filename,
           success: true,
           chunks: pythonResponse.data.chunks_added || 0,
           path: file.path,
         });
 
         console.log(
-          `✅ File ingested: ${file.originalname} -> ${
+          `✅ File ingested: ${file.originalname} -> ${file.filename} -> ${
             pythonResponse.data.chunks_added || 0
           } chunks`
         );
       } catch (error) {
-        console.error(`Failed to process ${file.originalname}:`, error);
+        console.error(`❌ Failed to process ${file.originalname}:`, error);
+
+        // Clean up the file that failed
+        try {
+          await fs.unlink(file.path);
+          console.log(`🧹 Cleaned up failed upload: ${file.filename}`);
+        } catch (cleanupError) {
+          console.log(
+            `⚠️ Could not clean up ${file.filename}:`,
+            cleanupError.message
+          );
+        }
+
         results.push({
           filename: file.originalname,
           success: false,
@@ -126,18 +178,28 @@ export const uploadFiles = async (req, res, next) => {
         );
 
         if (botIndex !== -1) {
-          botsData.bots[botIndex].files = [
-            ...(botsData.bots[botIndex].files || []),
-            ...fileRecords,
-          ];
+          // Replace files array with correct records
+          botsData.bots[botIndex].files = fileRecords;
           botsData.bots[botIndex].updatedAt = new Date().toISOString();
           await writeBots(botsData);
           console.log(
-            `✅ Updated bot ${botId} with ${fileRecords.length} new files`
+            `✅ Updated bot ${botId} with ${fileRecords.length} files:`,
+            fileRecords.map((f) => ({
+              filename: f.filename,
+              storedAs: f.storedAs,
+            }))
           );
+        } else {
+          console.error(
+            `❌ Bot ${botId} not found for user ${req.user.userId}`
+          );
+          // Clean up files if bot not found
+          await cleanupFiles(req.files);
         }
       } catch (botError) {
-        console.error("Failed to update bot with file records:", botError);
+        console.error("❌ Failed to update bot with file records:", botError);
+        // Clean up files if update fails
+        await cleanupFiles(req.files);
       }
     }
 
@@ -148,9 +210,25 @@ export const uploadFiles = async (req, res, next) => {
       totalProcessed: fileRecords.length,
     });
   } catch (error) {
+    // Clean up files on any error
+    if (processingStarted && req.files) {
+      await cleanupFiles(req.files);
+    }
     next(error);
   }
 };
+
+// Helper function to clean up files
+async function cleanupFiles(files) {
+  for (const file of files) {
+    try {
+      await fs.unlink(file.path);
+      console.log(`🧹 Cleaned up: ${file.filename}`);
+    } catch (error) {
+      console.log(`⚠️ Could not clean up ${file.filename}:`, error.message);
+    }
+  }
+}
 
 // Error handler middleware
 export const handleUploadErrors = (error, req, res, next) => {
