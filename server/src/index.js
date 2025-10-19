@@ -3,6 +3,9 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import path from "node:path";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import hpp from "hpp";
 
 import uploadsRoutes from "./routes/uploads.js";
 import botsRoutes from "./routes/bots.js";
@@ -11,7 +14,8 @@ import { ensureUploadDir } from "./lib/fsutil.js";
 import { connectMongo } from "./lib/mongo.js";
 import authRoutes from "./routes/auth.js";
 import ragRoutes from "./routes/rag.js";
-import chatRoutes from "./routes/chat.js"; // This should work now
+import chatRoutes from "./routes/chat.js";
+import { sanitizeInput } from "./middleware/sanitizeHtmlMiddleware.js";
 
 async function main() {
   // Connect to Mongo if enabled
@@ -20,22 +24,100 @@ async function main() {
   //   console.log("[mongo] connected");
   // }
 
-  console.log("📁 Using JSON file system for data storage");
-  // Ensure upload directory exists
   const uploadDir = process.env.UPLOAD_DIR || "uploads";
   await ensureUploadDir(uploadDir);
 
   const app = express();
 
-  // Middleware
-  app.use(cors({ origin: true })); // TODO: lock down allowed origins in prod
-  app.use(express.json({ limit: "2mb" }));
+  // ========================
+  // ENHANCED SECURITY MIDDLEWARE
+  // ========================
+
+  // 1. Helmet - Security headers
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'"],
+          imgSrc: ["'self'", "data:", "https:"],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    })
+  );
+
+  // 2. Rate limiting configuration
+  const rateLimitConfig = {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: process.env.NODE_ENV === "production" ? 100 : 1000,
+    message: {
+      ok: false,
+      error: "rate_limit_exceeded",
+      message: "Too many requests from this IP, please try again later.",
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+  };
+
+  const limiter = rateLimit(rateLimitConfig);
+  app.use(limiter);
+
+  // More aggressive rate limiting for auth routes
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // limit each IP to 5 login attempts per windowMs
+    message: {
+      ok: false,
+      error: "auth_rate_limit",
+      message: "Too many authentication attempts, please try again later.",
+    },
+  });
+
+  // 3. CORS configuration
+  const corsOptions = {
+    origin:
+      process.env.NODE_ENV === "production"
+        ? [process.env.FRONTEND_URL]
+        : ["http://localhost:3000", "http://localhost:5173"],
+    credentials: true,
+    optionsSuccessStatus: 200,
+  };
+  app.use(cors(corsOptions));
+
+  // 4. Body parsing with limits
+  app.use(
+    express.json({
+      limit: "10mb",
+    })
+  );
+
+  app.use(
+    express.urlencoded({
+      extended: true,
+      limit: "10mb",
+    })
+  );
+
+  // 5. Custom HTML Sanitization
+  app.use(sanitizeInput);
+
+  // 6. HTTP Parameter Pollution protection
+  app.use(hpp());
+
+  // 7. Request logging
   app.use(requestLogger);
 
-  // Health & readiness
+  // ========================
+  // ROUTES
+  // ========================
+
+  // Health & readiness (no rate limiting for health checks)
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, ts: new Date().toISOString() });
   });
+
   app.get("/api/ready", (_req, res) => {
     res.send("ok");
   });
@@ -64,15 +146,22 @@ async function main() {
     }
   });
 
+  // Apply auth rate limiting to auth routes
+  app.use("/api/auth", authLimiter);
+
   // Optionally serve uploaded files (useful for previews)
   app.use("/uploads", express.static(path.resolve(process.cwd(), uploadDir)));
 
-  // Routes
+  // API Routes
   app.use("/api/auth", authRoutes);
   app.use("/api/uploads", uploadsRoutes);
   app.use("/api/bots", botsRoutes);
   app.use("/api/rag", ragRoutes);
   app.use("/api/chat", chatRoutes);
+
+  // ========================
+  // ERROR HANDLING
+  // ========================
 
   // 404 handler
   app.use((req, res) => {
@@ -85,19 +174,23 @@ async function main() {
   app.use(errorLogger);
   app.use((err, _req, res, _next) => {
     console.error("Unhandled error:", err);
+
+    const message =
+      process.env.NODE_ENV === "production"
+        ? "Internal Server Error"
+        : err.message;
+
     res.status(500).json({
       ok: false,
       error: "server_error",
-      message:
-        process.env.NODE_ENV === "production"
-          ? "Internal Server Error"
-          : err.message,
+      message: message,
     });
   });
 
   const port = process.env.PORT || 4000;
   app.listen(port, () => {
-    console.log(`API running on http://localhost:${port}`);
+    console.log(`🔒 Secure API running on http://localhost:${port}`);
+    console.log(`📊 Rate limiting: ${rateLimitConfig.max} requests per 15min`);
   });
 }
 
