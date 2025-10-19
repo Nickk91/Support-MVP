@@ -1,5 +1,6 @@
 import { useWizardStore } from "../../../store/wizardStore";
 import { Button } from "@/components/ui/button";
+
 import StepActions from "../../../components/ui/StepActions/StepActions";
 
 import { Bot } from "lucide-react";
@@ -20,7 +21,7 @@ export default function StepWelcome() {
       <h2>Let's build your AI Support Bot</h2>
       <p>Answer a few quick questions. We'll handle the rest.</p>
       <StepActions>
-        <Button variant="primary" onClick={next}>
+        <Button variant="outline" onClick={next}>
           Start Setup
         </Button>
       </StepActions>

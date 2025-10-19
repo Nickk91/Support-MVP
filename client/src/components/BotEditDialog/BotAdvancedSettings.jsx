@@ -32,12 +32,11 @@ export default function BotAdvancedSettings({ bot, onChange }) {
           <SelectContent>
             {AI_MODELS.map((model) => (
               <SelectItem key={model.value} value={model.value}>
-                <div className="flex flex-col">
-                  <span className="font-medium">{model.label}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {model.description}
-                  </span>
-                </div>
+                {model.label}{" "}
+                <span className="text-muted-foreground">
+                  {" "}
+                  - {model.description}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>

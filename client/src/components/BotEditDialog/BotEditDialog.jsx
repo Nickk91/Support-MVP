@@ -167,19 +167,6 @@ export default function BotEditDialog({
           ))}
         </div>
 
-        {/* Step Info Debug */}
-        <div className="mb-4 p-2 bg-blue-50 rounded text-sm">
-          <span className="font-medium">
-            Step {currentStep + 1} of {STEPS.length}:
-          </span>{" "}
-          {STEPS[currentStep].label}
-          {!isStepValid() && (
-            <span className="ml-2 text-orange-600">
-              (Please complete required fields)
-            </span>
-          )}
-        </div>
-
         {/* Current Step Content */}
         <div className="min-h-[300px] relative">
           <CurrentStepComponent bot={formData} onChange={updateFormData} />

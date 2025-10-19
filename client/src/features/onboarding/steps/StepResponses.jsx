@@ -4,7 +4,7 @@ import { Label } from "@radix-ui/react-label";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import StepActions from "@/components/ui/StepActions/StepActions";
-import Button from "@/components/ui/Button/Button";
+import { Button } from "@/components/ui/button";
 
 export default function StepResponses() {
   const { values, update, next, prev, validateStep, validateField, errors } =
