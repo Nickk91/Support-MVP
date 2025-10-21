@@ -1,4 +1,4 @@
-// src/store/useUserStore.js - ENHANCED VERSION
+// src/store/useUserStore.js - UPDATED
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -41,6 +41,42 @@ export const useUserStore = create(
         // Update both store and localStorage
         localStorage.setItem("user", JSON.stringify(updatedUser));
         set({ user: updatedUser });
+      },
+
+      // ✅ ADD THIS METHOD - Check if user is authenticated
+      checkAuth: async () => {
+        try {
+          const token = localStorage.getItem("authToken");
+          const userStr = localStorage.getItem("user");
+
+          if (token && userStr) {
+            const user = JSON.parse(userStr);
+
+            // Optional: Validate token with backend
+            // const response = await api.get('/auth/verify');
+            // if (!response.data.ok) throw new Error('Invalid token');
+
+            set({
+              user,
+              token,
+              isAuthenticated: true,
+            });
+            return true;
+          } else {
+            // Clear any invalid state
+            set({
+              user: null,
+              token: null,
+              isAuthenticated: false,
+            });
+            return false;
+          }
+        } catch (error) {
+          console.error("Auth check failed:", error);
+          // Clear invalid auth state
+          get().logout();
+          return false;
+        }
       },
 
       // Initialize from localStorage on app start

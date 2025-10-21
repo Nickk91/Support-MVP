@@ -1,7 +1,7 @@
-// src/features/onboarding/steps/StepRegister.jsx
+// src/features/onboarding/steps/StepRegister.jsx - UPDATED
 import { useState, useEffect } from "react";
 import { useWizardStore } from "../../../store/wizardStore";
-import { useUserStore } from "../../../store/useUserStore"; // Import the user store
+import { useUserStore } from "../../../store/useUserStore";
 import { Button } from "@/components/ui/button";
 import StepActions from "../../../components/ui/StepActions/StepActions";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,11 @@ import { Label } from "@/components/ui/label";
 import api from "@/lib/api";
 import { UserPlusIcon, KeyIcon } from "@heroicons/react/24/outline";
 
-export default function StepRegister() {
+export default function StepRegister({
+  isStandalone = false,
+  onSuccess = null,
+  onCancel = null,
+}) {
   const {
     next,
     prev,
@@ -21,7 +25,6 @@ export default function StepRegister() {
     setAuthenticated,
   } = useWizardStore();
 
-  // Use the user store
   const { login } = useUserStore();
 
   const [isLogin, setIsLogin] = useState(false);
@@ -37,23 +40,27 @@ export default function StepRegister() {
     companyName: userData.companyName || "",
   }));
 
-  // Update store when navigating away
+  // Update store when navigating away (only in wizard mode)
   useEffect(() => {
-    return () => {
-      updateUser(formData);
-    };
-  }, [formData, updateUser]);
+    if (!isStandalone) {
+      return () => {
+        updateUser(formData);
+      };
+    }
+  }, [formData, updateUser, isStandalone]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    // Save current form data to store before submission
-    updateUser(formData);
+    // Save current form data to store before submission (only in wizard mode)
+    if (!isStandalone) {
+      updateUser(formData);
+    }
 
     // Validate form before submission
-    if (!isLogin && !validateStep("register")) {
+    if (!isLogin && !isStandalone && !validateStep("register")) {
       setLoading(false);
       setError("Please fix the validation errors above.");
       return;
@@ -73,11 +80,13 @@ export default function StepRegister() {
             firstName: formData.firstName,
             lastName: formData.lastName,
             companyName: formData.companyName,
-            // Include bot configuration for context
-            botConfig: {
-              botName: values.botName,
-              model: values.model,
-            },
+            // Include bot configuration for context (only in wizard mode)
+            ...(!isStandalone && {
+              botConfig: {
+                botName: values.botName,
+                model: values.model,
+              },
+            }),
           };
 
       console.log("🔐 Sending auth request to:", endpoint);
@@ -89,26 +98,33 @@ export default function StepRegister() {
         throw new Error(data.message || "Authentication failed");
       }
 
-      // ✅ UPDATED: Use the user store instead of direct localStorage
+      // ✅ Use the user store
       login(data.user, data.access_token);
 
-      // Update wizard store authentication status
-      setAuthenticated(true);
+      // Update wizard store authentication status (only in wizard mode)
+      if (!isStandalone) {
+        setAuthenticated(true);
+      }
 
       console.log("✅ Auth successful:", data.user);
 
-      // Continue to knowledge base
-      next();
+      // Handle success based on context
+      if (isStandalone && onSuccess) {
+        onSuccess(data.user);
+      } else if (!isStandalone) {
+        // Continue to knowledge base in wizard mode
+        next();
+      }
     } catch (err) {
       console.error("❌ Auth failed:", err);
 
       // Handle different error types
-      if (err.error === "email_exists") {
+      if (err.response?.data?.error === "email_exists") {
         setError(
           "An account with this email already exists. Please sign in instead."
         );
         setIsLogin(true); // Auto-switch to login
-      } else if (err.error === "invalid_credentials") {
+      } else if (err.response?.data?.error === "invalid_credentials") {
         setError("Invalid email or password. Please try again.");
       } else if (err.message) {
         setError(err.message);
@@ -124,17 +140,19 @@ export default function StepRegister() {
 
   const updateFormData = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    if (!isLogin) {
+    if (!isLogin && !isStandalone) {
       validateField("register", field);
     }
   };
 
   const handleModeSwitch = () => {
-    updateUser(formData);
+    if (!isStandalone) {
+      updateUser(formData);
+    }
     setIsLogin(!isLogin);
     setError("");
 
-    if (!isLogin) {
+    if (!isLogin && !isStandalone) {
       Object.keys(formData).forEach((field) => {
         validateField("register", field);
       });
@@ -171,7 +189,9 @@ export default function StepRegister() {
             type="email"
             value={formData.email}
             onChange={(e) => updateFormData("email", e.target.value)}
-            onBlur={() => !isLogin && validateField("register", "email")}
+            onBlur={() =>
+              !isLogin && !isStandalone && validateField("register", "email")
+            }
             placeholder="your@company.com"
             required
             className={
@@ -192,7 +212,9 @@ export default function StepRegister() {
             type="password"
             value={formData.password}
             onChange={(e) => updateFormData("password", e.target.value)}
-            onBlur={() => !isLogin && validateField("register", "password")}
+            onBlur={() =>
+              !isLogin && !isStandalone && validateField("register", "password")
+            }
             placeholder="••••••••"
             required
             minLength="6"
@@ -218,9 +240,11 @@ export default function StepRegister() {
                 type="text"
                 value={formData.firstName}
                 onChange={(e) => updateFormData("firstName", e.target.value)}
-                onBlur={() => validateField("register", "firstName")}
+                onBlur={() =>
+                  !isStandalone && validateField("register", "firstName")
+                }
                 placeholder="John"
-                required
+                required={!isStandalone}
                 className={
                   registerErrors.firstName
                     ? "border-destructive focus-visible:ring-destructive"
@@ -241,9 +265,11 @@ export default function StepRegister() {
                 type="text"
                 value={formData.lastName}
                 onChange={(e) => updateFormData("lastName", e.target.value)}
-                onBlur={() => validateField("register", "lastName")}
+                onBlur={() =>
+                  !isStandalone && validateField("register", "lastName")
+                }
                 placeholder="Doe"
-                required
+                required={!isStandalone}
                 className={
                   registerErrors.lastName
                     ? "border-destructive focus-visible:ring-destructive"
@@ -264,9 +290,11 @@ export default function StepRegister() {
                 type="text"
                 value={formData.companyName}
                 onChange={(e) => updateFormData("companyName", e.target.value)}
-                onBlur={() => validateField("register", "companyName")}
+                onBlur={() =>
+                  !isStandalone && validateField("register", "companyName")
+                }
                 placeholder="Your Company Inc."
-                required
+                required={!isStandalone}
                 className={
                   registerErrors.companyName
                     ? "border-destructive focus-visible:ring-destructive"
@@ -305,21 +333,32 @@ export default function StepRegister() {
         </button>
       </div>
 
-      <StepActions>
-        <Button variant="outline" onClick={prev}>
-          Back
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => {
-            updateUser(formData);
-            next();
-          }}
-          disabled={!localStorage.getItem("authToken")}
-        >
-          Skip for now
-        </Button>
-      </StepActions>
+      {/* Conditional rendering based on context */}
+      {!isStandalone ? (
+        <StepActions>
+          <Button variant="outline" onClick={prev}>
+            Back
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              updateUser(formData);
+              next();
+            }}
+            disabled={!localStorage.getItem("authToken")}
+          >
+            Skip for now
+          </Button>
+        </StepActions>
+      ) : (
+        onCancel && (
+          <div className="mt-4 text-center">
+            <Button variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+          </div>
+        )
+      )}
     </>
   );
 }

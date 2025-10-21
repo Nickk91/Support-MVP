@@ -80,7 +80,7 @@ export default function OnboardingWizard() {
   }, []);
 
   return (
-    <div className="max-w-4xl mx-auto p-6 grid gap-4 justify-center">
+    <div className="max-w-4xl mx-auto p-6 grid gap-4 justify-center min-h-screen">
       {/* Header row: robot fill + pipeline */}
       <div className="flex items-center gap-4">
         <RobotProgress progress={progress()} size="w-12 h-12" />
