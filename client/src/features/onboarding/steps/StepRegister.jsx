@@ -1,4 +1,4 @@
-// src/features/onboarding/steps/StepRegister.jsx - UPDATED
+// src/features/onboarding/steps/StepRegister.jsx - REFACTORED
 import { useState, useEffect } from "react";
 import { useWizardStore } from "../../../store/wizardStore";
 import { useUserStore } from "../../../store/useUserStore";
@@ -351,7 +351,9 @@ export default function StepRegister({
           </Button>
         </StepActions>
       ) : (
-        onCancel && (
+        // Show cancel button only in standalone mode when onCancel exists and user is in login mode
+        onCancel &&
+        isLogin && (
           <div className="mt-4 text-center">
             <Button variant="outline" onClick={onCancel}>
               Cancel
