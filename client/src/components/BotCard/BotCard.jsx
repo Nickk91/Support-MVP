@@ -1,12 +1,16 @@
-// src/components/BotCard/BotCard.jsx - UPDATED
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Bot, Edit, Trash2, FileText, MessageSquare } from "lucide-react";
+import { Bot, Edit, Trash2, FileText, MessageSquare, Eye } from "lucide-react";
 
-export default function BotCard({ bot, onEdit, onDelete }) {
+export default function BotCard({ bot, onEdit, onDelete, onInspect }) {
   const handleDeleteClick = (e) => {
     e.stopPropagation(); // Prevent triggering edit
     onDelete(bot);
+  };
+
+  const handleInspectClick = (e) => {
+    e.stopPropagation(); // Prevent triggering edit
+    onInspect(bot);
   };
 
   return (
@@ -18,6 +22,17 @@ export default function BotCard({ bot, onEdit, onDelete }) {
             <CardTitle className="text-lg">{bot.botName}</CardTitle>
           </div>
           <div className="flex space-x-1">
+            {/* Inspect Button - NEW */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleInspectClick}
+              className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+              title="Inspect Documents"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            {/* Edit Button */}
             <Button
               variant="ghost"
               size="sm"
@@ -26,6 +41,7 @@ export default function BotCard({ bot, onEdit, onDelete }) {
             >
               <Edit className="h-4 w-4" />
             </Button>
+            {/* Delete Button */}
             <Button
               variant="ghost"
               size="sm"

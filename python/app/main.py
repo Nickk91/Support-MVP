@@ -6,6 +6,7 @@ load_dotenv(find_dotenv(), override=False)
 from fastapi import FastAPI
 from app.routers import health, ingest, query, auth, chat, bots
 from app.rag.vectorstore import cleanup_pending_deletions
+from app.routers import inspection 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +27,7 @@ app.include_router(query.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(bots.router, prefix="/api")
+app.include_router(inspection.router, prefix="/api")
 
 @app.get("/")
 def root():

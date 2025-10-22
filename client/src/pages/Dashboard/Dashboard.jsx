@@ -319,6 +319,13 @@ export default function Dashboard() {
     fetchUserBots(true);
   };
 
+  const handleInspectBot = (bot) => {
+    // Navigate to the document inspector for this bot
+    window.open(`/inspect/${bot.id}`, "_blank");
+    // Or if you prefer same-tab navigation:
+    // navigate(`/inspect/${bot.id}`);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
@@ -458,6 +465,7 @@ export default function Dashboard() {
                   bot={bot}
                   onEdit={() => handleEditBot(bot)}
                   onDelete={() => handleDeleteClick(bot)}
+                  onInspect={handleInspectBot}
                 />
               ))}
             </div>

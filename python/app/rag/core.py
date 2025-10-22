@@ -9,42 +9,91 @@ from app.rag.loaders import load_paths
 from app.rag.retriever import make_retriever
 from app.rag.pipeline import build_prompt, build_chain
 from app.rag.llm import make_llm
+from app.rag.inspection_store import InspectionStore
 
 logger = logging.getLogger(__name__)
 
-# UPDATE ingest_files to accept tenant_id
 def ingest_files(
     bot_id: str,
-    paths: List[str],  # ← CHANGE from file_paths to paths
+    paths: List[str],
     *,
     user_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
     chunk_size: int = 800,
     chunk_overlap: int = 120,
 ) -> int:
-    # Load - update variable name here too
+    # DEBUG: Log what paths we received
+    logger.info(f"🔍 DEBUG ingest_files called with paths: {paths}")
+    logger.info(f"🔍 DEBUG bot_id: {bot_id}, user_id: {user_id}")
+    
+    # Initialize inspection store
+    inspection_store = InspectionStore()
+    
+    # Load documents
     docs = load_paths(paths)
-
-    # Split - Create splitter directly
+    
+    # DEBUG: Log what documents were loaded and their metadata
+    logger.info(f"🔍 DEBUG Loaded {len(docs)} documents")
+    for i, doc in enumerate(docs):
+        logger.info(f"🔍 DEBUG Doc {i}: source={doc.metadata.get('source')}, metadata={doc.metadata}")
+    
+    # Create splitter
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", ". ", " ", ""]  # Default separators
+        separators=["\n\n", "\n", ". ", " ", ""]
     )
         
     chunks = splitter.split_documents(docs)
 
-    # Scope metadata - ADD tenant_id to metadata
+    # Scope metadata
     scope = f"user:{user_id}" if user_id else "global"
     for ch in chunks:
         md = ch.metadata or {}
         md.setdefault("bot_id", bot_id)
         md.setdefault("user_scope", scope)
         md.setdefault("source", md.get("source", "uploaded"))
-        if tenant_id:  # ADD tenant_id to metadata if provided
+        if tenant_id:
             md.setdefault("tenant_id", tenant_id)
         ch.metadata = md
+
+    # Group chunks by their source document
+    chunks_by_source = {}
+    for chunk in chunks:
+        source = chunk.metadata.get("source", "unknown")
+        if source not in chunks_by_source:
+            chunks_by_source[source] = []
+        chunks_by_source[source].append(chunk)
+    
+    # DEBUG: Log what sources we found
+    logger.info(f"🔍 DEBUG Found chunks from sources: {list(chunks_by_source.keys())}")
+    
+    # Save inspection data for each document
+    for source_path, document_chunks in chunks_by_source.items():
+        logger.info(f"🔍 DEBUG Saving inspection data for: {source_path} with {len(document_chunks)} chunks")
+        
+        chunks_data = []
+        for i, chunk in enumerate(document_chunks):
+            chunks_data.append({
+                "chunk_id": f"{source_path}_{i}",
+                "content": chunk.page_content,
+                "metadata": chunk.metadata,
+                "token_count": len(chunk.page_content.split()),
+                "char_count": len(chunk.page_content),
+                "chunk_index": i,
+                "page_number": chunk.metadata.get("page", None),
+                "source": source_path
+            })
+        
+        # Save to inspection store
+        inspection_store.save_inspection_data(
+            bot_id=bot_id,
+            document_path=source_path,  # Use the actual source path from metadata
+            chunks_data=chunks_data,
+            user_id=user_id,
+            tenant_id=tenant_id
+        )
 
     # Upsert to vector store
     vs = get_vectorstore(bot_id)

@@ -1,4 +1,3 @@
-// src/main.jsx - UPDATED
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -7,6 +6,7 @@ import OnboardingWizard from "./features/onboarding/OnboardingWizard.jsx";
 import TestPage from "./pages/TestPage/TestPage.jsx";
 import Dashboard from "./pages/Dashboard/Dashboard.jsx";
 import AuthPage from "./pages/Auth/AuthPage.jsx";
+import DocumentInspector from "./pages/DocumentInspector/DocumentInspector.jsx"; // ADD THIS
 import { AuthProvider } from "./contexts/AuthContext.jsx";
 import ProtectedRoute from "./components/ProtectedRoute/ProtectedRoute.jsx";
 
@@ -32,6 +32,16 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* ADD Document Inspector Route */}
+            <Route
+              path="inspect/:botId"
+              element={
+                <ProtectedRoute>
+                  <DocumentInspector />
                 </ProtectedRoute>
               }
             />

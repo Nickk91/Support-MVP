@@ -6,6 +6,8 @@ venv/
 ENV/
 env/
 
+CV - Nikolai Kaploon.pdf
+
 # Python cache/bytecode
 __pycache__/
 *.pyc
