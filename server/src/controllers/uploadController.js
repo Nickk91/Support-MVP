@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import pythonService from "../../services/pythonService.js";
 import axios from "axios";
-import { readBots, writeBots } from "./botController.js";
+import { updateBotFiles } from "./botController.js"; // CHANGED: Import updateBotFiles instead
 
 // Configure AWS S3
 const s3Client = new S3Client({
@@ -173,21 +173,19 @@ export const uploadFiles = async (req, res, next) => {
       }
     }
 
-    // Update bot with file records (S3 info)
+    // Update bot with file records in MongoDB (CHANGED: Using updateBotFiles)
     if (fileRecords.length > 0) {
       try {
-        const botsData = await readBots();
-        const botIndex = botsData.bots.findIndex(
-          (bot) => bot.id === botId && bot.ownerId === req.user.userId
+        const updatedBot = await updateBotFiles(
+          botId,
+          req.user.userId,
+          req.user.tenantId,
+          fileRecords
         );
 
-        if (botIndex !== -1) {
-          // Replace files array with S3 file records
-          botsData.bots[botIndex].files = fileRecords;
-          botsData.bots[botIndex].updatedAt = new Date().toISOString();
-          await writeBots(botsData);
+        if (updatedBot) {
           console.log(
-            `✅ Updated bot ${botId} with ${fileRecords.length} S3 files:`,
+            `✅ Updated bot ${botId} with ${fileRecords.length} S3 files in MongoDB:`,
             fileRecords.map((f) => ({
               filename: f.filename,
               s3Key: f.s3Key,
@@ -195,12 +193,12 @@ export const uploadFiles = async (req, res, next) => {
           );
         } else {
           console.error(
-            `❌ Bot ${botId} not found for user ${req.user.userId}`
+            `❌ Bot ${botId} not found for user ${req.user.userId} in MongoDB`
           );
         }
       } catch (botError) {
         console.error(
-          "❌ Failed to update bot with S3 file records:",
+          "❌ Failed to update bot with S3 file records in MongoDB:",
           botError
         );
       }
