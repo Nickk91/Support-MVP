@@ -1,41 +1,47 @@
 // server/src/lib/mongo.js
+import { MongoClient } from "mongodb";
 import mongoose from "mongoose";
 
-let cached = global._mongoose; // so hot reloads don't create new connections
+let cachedClient = null;
+let cachedDb = null;
 
-if (!cached) {
-  cached = global._mongoose = { conn: null, promise: null };
+// Your existing function
+export async function connectMongo(uri) {
+  if (cachedClient && cachedDb) {
+    return { client: cachedClient, db: cachedDb };
+  }
+
+  const client = await MongoClient.connect(uri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+
+  const db = client.db("rag-platform");
+
+  cachedClient = client;
+  cachedDb = db;
+
+  console.log("✅ Connected to MongoDB");
+  return { client, db };
 }
 
-export async function connectMongo(uri) {
-  if (cached.conn) return cached.conn;
-  if (!uri) throw new Error("MONGODB_URI is not set");
-
-  mongoose.set("strictQuery", true);
-
-  if (!cached.promise) {
-    cached.promise = mongoose
-      .connect(uri, {
-        bufferCommands: false, // disable mongoose buffering if server down
-      })
-      .then((m) => m.connection);
-  }
+// Add Mongoose connection function
+export async function connectMongoose() {
+  const MONGODB_URI = `mongodb+srv://${process.env.USERNAME}:${process.env.PASS}@cluster0.mongodb.net/rag-platform?retryWrites=true&w=majority`;
 
   try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
+    await mongoose.connect(MONGODB_URI);
+    console.log("✅ Mongoose connected to MongoDB");
+  } catch (error) {
+    console.error("MongoDB connection error:", error);
+    process.exit(1);
   }
-
-  return cached.conn;
 }
 
-// Optional: graceful shutdown
-process.on("SIGINT", async () => {
-  if (cached.conn) {
-    await mongoose.disconnect();
-    console.log("🔌 MongoDB connection closed (SIGINT)");
+// Helper function to get database instance
+export function getDb() {
+  if (!cachedDb) {
+    throw new Error("Database not initialized. Call connectMongo first.");
   }
-  process.exit(0);
-});
+  return cachedDb;
+}
