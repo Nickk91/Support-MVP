@@ -1,4 +1,3 @@
-// server/src/lib/mongo.js
 import { MongoClient } from "mongodb";
 import mongoose from "mongoose";
 
@@ -27,7 +26,7 @@ export async function connectMongo(uri) {
 
 // Add Mongoose connection function
 export async function connectMongoose() {
-  const MONGODB_URI = `mongodb+srv://${process.env.USERNAME}:${process.env.PASS}@cluster0.mongodb.net/rag-platform?retryWrites=true&w=majority`;
+  const MONGODB_URI = `mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@cluster0.mongodb.net/rag-platform?retryWrites=true&w=majority`;
 
   try {
     await mongoose.connect(MONGODB_URI);
