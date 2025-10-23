@@ -3,9 +3,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { nanoid } from "nanoid";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import pythonService from "../../services/pythonService.js";
 import axios from "axios";
-import { updateBotFiles } from "./botController.js"; // CHANGED: Import updateBotFiles instead
+import { updateBotFiles } from "./botController.js";
 
 // Configure AWS S3
 const s3Client = new S3Client({
@@ -111,7 +110,6 @@ export const uploadFiles = async (req, res, next) => {
           Metadata: {
             originalName: file.originalname,
             uploadedBy: req.user.userId || "unknown",
-            tenantId: req.user.tenantId || "unknown",
             botId: botId,
           },
         };
@@ -130,7 +128,6 @@ export const uploadFiles = async (req, res, next) => {
             bot_id: botId,
             paths: [s3Url], // Pass S3 URL instead of local path
             user_id: req.user.userId,
-            tenant_id: req.user.tenantId,
           }
         );
 
@@ -140,8 +137,7 @@ export const uploadFiles = async (req, res, next) => {
           storedAs: fileKey,
           size: file.size,
           mimetype: file.mimetype,
-          uploadedBy: req.user.userId,
-          tenantId: req.user.tenantId,
+          uploadedBy: req.user.userId, // ✅ Use actual user ID, not placeholder
           s3Url: s3Url,
           s3Key: fileKey,
           uploadedAt: new Date().toISOString(),
@@ -173,13 +169,12 @@ export const uploadFiles = async (req, res, next) => {
       }
     }
 
-    // Update bot with file records in MongoDB (CHANGED: Using updateBotFiles)
+    // Update bot with file records in MongoDB
     if (fileRecords.length > 0) {
       try {
         const updatedBot = await updateBotFiles(
           botId,
           req.user.userId,
-          req.user.tenantId,
           fileRecords
         );
 
@@ -215,7 +210,7 @@ export const uploadFiles = async (req, res, next) => {
   }
 };
 
-// Error handler middleware (unchanged)
+// Error handler middleware
 export const handleUploadErrors = (error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === "LIMIT_FILE_SIZE") {

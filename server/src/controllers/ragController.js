@@ -21,14 +21,12 @@ export const askQuestion = async (req, res) => {
       headers: {
         "Content-Type": "application/json",
         "X-User-ID": req.user.userId,
-        "X-Tenant-ID": req.user.tenantId,
         "X-User-Role": req.user.role,
         "X-Bot-ID": botId || "",
       },
       body: JSON.stringify({
         question,
         user_id: req.user.userId,
-        tenant_id: req.user.tenantId,
       }),
     });
 
@@ -70,14 +68,12 @@ export const adminAskQuestion = async (req, res) => {
       headers: {
         "Content-Type": "application/json",
         "X-User-ID": req.user.userId,
-        "X-Tenant-ID": req.user.tenantId,
         "X-User-Role": req.user.role,
         "X-Bot-ID": botId || "",
       },
       body: JSON.stringify({
         question,
         user_id: req.user.userId,
-        tenant_id: req.user.tenantId,
       }),
     });
 
@@ -119,7 +115,6 @@ export const ingestFiles = async (req, res) => {
       headers: {
         "Content-Type": "application/json",
         "X-User-ID": req.user.userId,
-        "X-Tenant-ID": req.user.tenantId,
         "X-User-Role": req.user.role,
         "X-Bot-ID": botId,
       },

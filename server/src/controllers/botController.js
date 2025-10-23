@@ -20,7 +20,6 @@ export const createBot = async (req, res) => {
     } = req.body;
 
     console.log("🤖 Creating bot for user:", req.user.userId);
-    console.log("🏢 Tenant:", req.user.tenantId);
 
     // Validation
     if (!botName || !model) {
@@ -46,7 +45,6 @@ export const createBot = async (req, res) => {
     const duplicateBot = await Bot.findOne({
       botName: botName,
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     });
 
     if (duplicateBot) {
@@ -60,6 +58,12 @@ export const createBot = async (req, res) => {
     // Create new bot with nanoid for ID
     const botId = nanoid();
 
+    // Ensure files have proper uploadedBy values
+    const processedFiles = (files || []).map((file) => ({
+      ...file,
+      uploadedBy: req.user.userId, // Ensure this is the actual user ID, not "current-user"
+    }));
+
     const newBot = new Bot({
       _id: botId,
       botName,
@@ -68,10 +72,9 @@ export const createBot = async (req, res) => {
       fallback: fallback || "",
       greeting: greeting || "",
       guardrails: guardrails || "",
-      temperature: temperature || 0.7,
+      temperature: temperature || 0.1,
       escalation: escalation || { enabled: false, escalation_email: "" },
-      files: files || [],
-      tenantId: req.user.tenantId,
+      files: processedFiles, // Use processed files with proper uploadedBy
       ownerId: req.user.userId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -83,7 +86,6 @@ export const createBot = async (req, res) => {
       id: botId,
       botName,
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     });
 
     // 🐍 Python RAG Integration - Register bot
@@ -98,7 +100,6 @@ export const createBot = async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           "X-User-ID": req.user.userId,
-          "X-Tenant-ID": req.user.tenantId,
         },
         body: JSON.stringify({
           bot_id: botId,
@@ -106,7 +107,6 @@ export const createBot = async (req, res) => {
           system_message: systemMessage,
           model: model,
           fallback: fallback,
-          tenant_id: req.user.tenantId,
           owner_id: req.user.userId,
         }),
       });
@@ -171,11 +171,10 @@ export const updateBot = async (req, res) => {
       temperature,
     } = req.body;
 
-    // Find bot with ownerId and tenantId security check
+    // Find bot with ownerId security check
     const bot = await Bot.findOne({
       _id: req.params.id,
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     });
 
     if (!bot) {
@@ -191,7 +190,6 @@ export const updateBot = async (req, res) => {
       const duplicateBot = await Bot.findOne({
         botName: botName,
         ownerId: req.user.userId,
-        tenantId: req.user.tenantId,
         _id: { $ne: req.params.id },
       });
 
@@ -211,7 +209,7 @@ export const updateBot = async (req, res) => {
     bot.fallback = fallback || "";
     bot.greeting = greeting || "";
     bot.guardrails = guardrails || "";
-    bot.temperature = temperature || 0.7;
+    bot.temperature = temperature || 0.1;
     bot.escalation = escalation || { enabled: false, escalation_email: "" };
     bot.files = files || [];
     bot.updatedAt = new Date();
@@ -233,7 +231,6 @@ export const updateBot = async (req, res) => {
           headers: {
             "Content-Type": "application/json",
             "X-User-ID": req.user.userId,
-            "X-Tenant-ID": req.user.tenantId,
           },
           body: JSON.stringify({
             bot_name: botName,
@@ -275,10 +272,9 @@ export const updateBot = async (req, res) => {
 // Get all bots for user (only user's own bots)
 export const getBots = async (req, res) => {
   try {
-    // Find bots by ownerId AND tenantId for security
+    // Find bots by ownerId for security
     const userBots = await Bot.find({
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     }).sort({ createdAt: -1 });
 
     console.log(`📊 Found ${userBots.length} bots for user ${req.user.userId}`);
@@ -301,11 +297,10 @@ export const getBots = async (req, res) => {
 // Get single bot (with ownerId security)
 export const getBot = async (req, res) => {
   try {
-    // Find bot with ownerId and tenantId security check
+    // Find bot with ownerId security check
     const bot = await Bot.findOne({
       _id: req.params.id,
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     });
 
     if (!bot) {
@@ -333,11 +328,10 @@ export const getBot = async (req, res) => {
 // Delete bot (with ownerId security)
 export const deleteBot = async (req, res) => {
   try {
-    // Find bot with ownerId and tenantId security check
+    // Find bot with ownerId security check
     const bot = await Bot.findOne({
       _id: req.params.id,
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     });
 
     if (!bot) {
@@ -380,7 +374,6 @@ export const deleteBot = async (req, res) => {
           method: "DELETE",
           headers: {
             "X-User-ID": req.user.userId,
-            "X-Tenant-ID": req.user.tenantId,
           },
         }
       );
@@ -429,7 +422,6 @@ async function deleteBotFiles(files) {
     try {
       // Files are stored in the uploads directory with the storedAs filename
       if (file.storedAs) {
-        // Use the same path resolution as in uploadController
         const UPLOAD_DIR = path.resolve(
           process.cwd(),
           process.env.UPLOAD_DIR || "uploads"
@@ -484,13 +476,12 @@ async function deleteBotFiles(files) {
 }
 
 // Update bot files (used by upload controller)
-export const updateBotFiles = async (botId, ownerId, tenantId, fileRecords) => {
+export const updateBotFiles = async (botId, ownerId, fileRecords) => {
   try {
     const bot = await Bot.findOneAndUpdate(
       {
         _id: botId,
         ownerId: ownerId,
-        tenantId: tenantId,
       },
       {
         $set: {

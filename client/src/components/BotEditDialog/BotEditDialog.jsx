@@ -1,4 +1,4 @@
-// UPDATED BotEditDialog.jsx with fixed step navigation
+// UPDATED BotEditDialog.jsx with proper file upload handling
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -13,6 +13,7 @@ import BotBehaviorSettings from "./BotBehaviorSettings";
 import BotKnowledgeSettings from "./BotKnowledgeSettings";
 import BotAdvancedSettings from "./BotAdvancedSettings";
 import { useBotWizardStore } from "@/store/botWizardStore";
+import { useUserStore } from "@/store/useUserStore"; // Import user store
 
 const STEPS = [
   { id: "basic", label: "Basic Info", component: BotBasicSettings },
@@ -30,6 +31,7 @@ export default function BotEditDialog({
   fileUploadLoading = false,
 }) {
   const isNew = !bot;
+  const { user } = useUserStore(); // Get user data for file uploads
 
   // Get store state and actions
   const {
@@ -53,11 +55,25 @@ export default function BotEditDialog({
     }
   }, [open, bot, updateFormData]);
 
-  const handleSave = () => {
+  // Prepare files for upload - ensure they have proper user IDs
+  const prepareFilesForUpload = (files) => {
+    return files.map((file) => ({
+      ...file,
+      uploadedBy: user?.id || "unknown-user", // Use actual user ID
+      // Remove tenantId and fileObject from the data sent to bot creation
+    }));
+  };
+
+  const handleSave = async () => {
     if (isStepValid()) {
-      onSave(formData);
+      // Prepare the data for saving
+      const saveData = {
+        ...formData,
+        files: prepareFilesForUpload(formData.files || []),
+      };
+
+      await onSave(saveData);
       resetStore();
-    } else {
     }
   };
 
@@ -71,7 +87,6 @@ export default function BotEditDialog({
   const nextStep = () => {
     if (isStepValid() && currentStep < STEPS.length - 1) {
       storeNextStep();
-    } else {
     }
   };
 

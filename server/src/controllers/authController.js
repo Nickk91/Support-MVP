@@ -1,40 +1,12 @@
-// server/src/controllers/authController.js
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import fs from "fs/promises";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { User } from "../models/User.js";
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-super-secret-jwt-key-change-in-production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
 
-// Path to users JSON file
-const USERS_FILE = path.join(__dirname, "../../data/users/users.json");
-
 // Generate tenant ID
-function generateTenantId() {
-  return "tenant_" + Math.random().toString(36).substr(2, 9);
-}
-
-// Helper function to read users from JSON
-async function readUsers() {
-  try {
-    const data = await fs.readFile(USERS_FILE, "utf8");
-    return JSON.parse(data);
-  } catch (error) {
-    // If file doesn't exist, return default structure
-    return { users: [], lastId: 0 };
-  }
-}
-
-// Helper function to write users to JSON
-async function writeUsers(usersData) {
-  await fs.writeFile(USERS_FILE, JSON.stringify(usersData, null, 2));
-}
 
 // Register new client
 export const register = async (req, res) => {
@@ -60,15 +32,8 @@ export const register = async (req, res) => {
       });
     }
 
-    // Read existing users
-    const usersData = await readUsers();
-
-    console.log("📋 Current users in JSON:", usersData.users.length);
-    console.log("📁 Users file path:", USERS_FILE);
-    // Check if user exists
-    const existingUser = usersData.users.find(
-      (user) => user.email.toLowerCase() === email.toLowerCase()
-    );
+    // Check if user exists in MongoDB
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
 
     if (existingUser) {
       return res.status(400).json({
@@ -78,40 +43,32 @@ export const register = async (req, res) => {
       });
     }
 
-    // Create tenant and user
-    const tenantId = generateTenantId();
+    // ✅ REMOVE THIS LINE: const userId = nanoid();
     const passwordHash = await bcrypt.hash(password, 12);
-    const userId = (usersData.lastId + 1).toString();
 
-    const newUser = {
-      id: userId,
+    const newUser = new User({
+      // ✅ REMOVE: _id: userId - let MongoDB handle ObjectId automatically
       email: email.toLowerCase(),
       passwordHash,
       firstName,
       lastName,
       companyName,
-      tenantId,
       role: "client_admin",
       isActive: true,
       plan: "starter",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    });
 
-    // Add user to data and update lastId
-    usersData.users.push(newUser);
-    usersData.lastId = parseInt(userId);
+    await newUser.save();
 
-    // Write back to file
-    await writeUsers(usersData);
+    console.log("✅ User registered in MongoDB:", {
+      id: newUser._id, // This will be automatic ObjectId
+      email,
+    });
 
-    console.log("✅ User registered:", { id: userId, email, tenantId });
-
-    // Generate JWT token
+    // Generate JWT token - Use the automatic ObjectId
     const token = jwt.sign(
       {
-        userId: newUser.id,
-        tenantId: newUser.tenantId,
+        userId: newUser._id, // This is now ObjectId
         role: newUser.role,
         email: newUser.email,
       },
@@ -123,11 +80,10 @@ export const register = async (req, res) => {
       ok: true,
       access_token: token,
       token_type: "bearer",
-      user_id: newUser.id,
-      tenant_id: newUser.tenantId,
+      user_id: newUser._id, // ObjectId
       role: newUser.role,
       user: {
-        id: newUser.id,
+        id: newUser._id, // ObjectId
         email: newUser.email,
         firstName: newUser.firstName,
         lastName: newUser.lastName,
@@ -145,7 +101,7 @@ export const register = async (req, res) => {
   }
 };
 
-// Login - Updated to use JSON file
+// Login - Updated to use MongoDB
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -158,13 +114,11 @@ export const login = async (req, res) => {
       });
     }
 
-    // Read users from JSON file
-    const usersData = await readUsers();
-
-    // Find user
-    const user = usersData.users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.isActive
-    );
+    // Find user in MongoDB
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+      isActive: true,
+    });
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({
@@ -174,10 +128,10 @@ export const login = async (req, res) => {
       });
     }
 
-    // Generate JWT token
+    // Generate JWT token - Use consistent userId field
     const token = jwt.sign(
       {
-        userId: user.id,
+        userId: user._id, // Use userId consistently
         tenantId: user.tenantId,
         role: user.role,
         email: user.email,
@@ -190,11 +144,11 @@ export const login = async (req, res) => {
       ok: true,
       access_token: token,
       token_type: "bearer",
-      user_id: user.id,
+      user_id: user._id,
       tenant_id: user.tenantId,
       role: user.role,
       user: {
-        id: user.id,
+        id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -212,11 +166,10 @@ export const login = async (req, res) => {
   }
 };
 
-// Get current user info - Updated for JSON
+// Get current user info - Updated for MongoDB
 export const getCurrentUser = async (req, res) => {
   try {
-    const usersData = await readUsers();
-    const user = usersData.users.find((u) => u.id === req.user.userId);
+    const user = await User.findById(req.user.userId);
 
     if (!user) {
       return res.status(404).json({
@@ -229,7 +182,7 @@ export const getCurrentUser = async (req, res) => {
     res.json({
       ok: true,
       user: {
-        id: user.id,
+        id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,

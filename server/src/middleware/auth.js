@@ -17,7 +17,7 @@ export const authenticateToken = (req, res, next) => {
     });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
       return res.status(403).json({
         ok: false,
@@ -25,7 +25,15 @@ export const authenticateToken = (req, res, next) => {
         message: "Invalid or expired token",
       });
     }
-    req.user = user;
+
+    // Normalize the user object to ensure consistent structure
+    req.user = {
+      userId: decoded.userId || decoded._id, // User ID is now the tenant boundary
+      role: decoded.role,
+      email: decoded.email,
+      // REMOVED: tenantId - user ID provides tenancy
+    };
+
     next();
   });
 };

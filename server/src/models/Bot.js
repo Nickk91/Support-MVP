@@ -1,4 +1,4 @@
-// server/src/models/Bot.js - UPDATED
+// server/src/models/Bot.js
 import mongoose from "mongoose";
 
 const fileSchema = new mongoose.Schema(
@@ -7,8 +7,7 @@ const fileSchema = new mongoose.Schema(
     storedAs: String,
     size: Number,
     mimetype: String,
-    uploadedBy: String,
-    tenantId: String,
+    uploadedBy: { type: String, required: true }, // ✅ Changed from ObjectId to String
     s3Url: String,
     s3Key: String,
     uploadedAt: { type: Date, default: Date.now },
@@ -25,17 +24,21 @@ const escalationSchema = new mongoose.Schema(
 );
 
 const botSchema = new mongoose.Schema({
+  _id: { type: String },
   botName: { type: String, required: true },
   model: { type: String, required: true },
   systemMessage: String,
   fallback: String,
   greeting: String,
   guardrails: String,
-  temperature: { type: Number, default: 0.7 },
+  temperature: { type: Number, default: 0.1 },
   escalation: escalationSchema,
   files: [fileSchema],
-  tenantId: { type: String, required: true },
-  ownerId: { type: String, required: true },
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
