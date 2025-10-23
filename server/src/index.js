@@ -5,7 +5,6 @@ import path from "node:path";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import hpp from "hpp";
-
 import uploadsRoutes from "./routes/uploads.js";
 import botsRoutes from "./routes/bots.js";
 import { requestLogger, errorLogger } from "./lib/logger.js";
@@ -15,6 +14,7 @@ import authRoutes from "./routes/auth.js";
 import ragRoutes from "./routes/rag.js";
 import chatRoutes from "./routes/chat.js";
 import { sanitizeInput } from "./middleware/sanitizeHtmlMiddleware.js";
+import inspectionRoutes from "./routes/inspection.js";
 
 async function main() {
   // Connect to MongoDB (REPLACED the commented section)
@@ -188,6 +188,7 @@ async function main() {
   app.use("/api/bots", botsRoutes);
   app.use("/api/rag", ragRoutes);
   app.use("/api/chat", chatRoutes);
+  app.use("/api/inspect", inspectionRoutes);
 
   // ========================
   // ERROR HANDLING

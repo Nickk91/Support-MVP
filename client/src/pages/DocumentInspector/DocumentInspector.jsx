@@ -105,10 +105,10 @@ export default function DocumentInspector() {
       <div className="min-h-screen p-8">
         <div className="max-w-7xl mx-auto">
           <div className="animate-pulse space-y-6">
-            <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+            <div className="h-8 bg-muted rounded w-1/4"></div>
             <div className="grid grid-cols-3 gap-6">
-              <div className="h-64 bg-gray-200 rounded"></div>
-              <div className="col-span-2 h-64 bg-gray-200 rounded"></div>
+              <div className="h-64 bg-muted rounded"></div>
+              <div className="col-span-2 h-64 bg-muted rounded"></div>
             </div>
           </div>
         </div>
@@ -117,7 +117,7 @@ export default function DocumentInspector() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen p-8 bg-background">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -132,7 +132,9 @@ export default function DocumentInspector() {
               <span>Back to Dashboard</span>
             </Button>
             <div>
-              <h1 className="text-3xl font-bold">Document Inspector</h1>
+              <h1 className="text-3xl font-bold text-foreground">
+                Document Inspector
+              </h1>
               <p className="text-muted-foreground">
                 Review how your documents are processed and verify content
                 extraction
@@ -161,15 +163,15 @@ export default function DocumentInspector() {
                       key={index}
                       className={`p-4 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
                         selectedDocument === doc.document_path
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-gray-200 bg-white"
+                          ? "border-primary bg-primary/5"
+                          : "border-border bg-card"
                       }`}
                       onClick={() => inspectDocument(doc.document_path)}
                     >
                       <div className="flex items-start space-x-3">
-                        <FileIcon className="h-5 w-5 text-gray-500 mt-0.5" />
+                        <FileIcon className="h-5 w-5 text-muted-foreground mt-0.5" />
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">
+                          <p className="font-medium text-sm truncate text-foreground">
                             {getFileName(doc.document_path)}
                           </p>
                           <p className="text-xs text-muted-foreground truncate">
@@ -189,7 +191,7 @@ export default function DocumentInspector() {
                           </div>
                         </div>
                         {selectedDocument === doc.document_path && (
-                          <Eye className="h-4 w-4 text-blue-500" />
+                          <Eye className="h-4 w-4 text-primary" />
                         )}
                       </div>
                     </div>
@@ -228,7 +230,7 @@ export default function DocumentInspector() {
                 </div>
               ) : inspecting ? (
                 <div className="text-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
                   <p className="mt-2 text-muted-foreground">
                     Loading document analysis...
                   </p>
@@ -236,9 +238,9 @@ export default function DocumentInspector() {
               ) : inspectionData ? (
                 <div className="space-y-6">
                   {/* Document Summary */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
                     <div className="text-center">
-                      <p className="text-2xl font-bold text-blue-600">
+                      <p className="text-2xl font-bold text-primary">
                         {inspectionData.parsing_result.length}
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -271,7 +273,9 @@ export default function DocumentInspector() {
 
                   {/* Test Query Section */}
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Test Document Retrieval</h3>
+                    <h3 className="font-semibold text-foreground">
+                      Test Document Retrieval
+                    </h3>
                     <div className="flex space-x-2">
                       <Input
                         placeholder="Enter a question to test retrieval..."
@@ -293,7 +297,9 @@ export default function DocumentInspector() {
                       <Card>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium">Query Results</span>
+                            <span className="font-medium text-foreground">
+                              Query Results
+                            </span>
                             <Badge
                               variant={
                                 queryResults.matches_found > 0
@@ -310,9 +316,9 @@ export default function DocumentInspector() {
                                 (chunk, index) => (
                                   <div
                                     key={index}
-                                    className="p-3 border rounded-lg bg-green-50"
+                                    className="p-3 border rounded-lg bg-green-50 dark:bg-green-950/20"
                                   >
-                                    <p className="text-sm">
+                                    <p className="text-sm text-foreground">
                                       {chunk.content_preview}
                                     </p>
                                     <div className="flex items-center space-x-2 mt-2 text-xs text-muted-foreground">
@@ -339,7 +345,9 @@ export default function DocumentInspector() {
 
                   {/* Chunks List */}
                   <div>
-                    <h3 className="font-semibold mb-4">Document Chunks</h3>
+                    <h3 className="font-semibold mb-4 text-foreground">
+                      Document Chunks
+                    </h3>
                     <ScrollArea className="h-[400px]">
                       <div className="space-y-3">
                         {inspectionData.parsing_result.map((chunk, index) => (
@@ -372,7 +380,7 @@ export default function DocumentInspector() {
                                   <Copy className="h-3 w-3" />
                                 </Button>
                               </div>
-                              <p className="text-sm whitespace-pre-wrap">
+                              <p className="text-sm whitespace-pre-wrap text-foreground">
                                 {chunk.content}
                               </p>
                             </CardContent>
