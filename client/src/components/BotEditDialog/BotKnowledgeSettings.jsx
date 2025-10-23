@@ -1,26 +1,28 @@
-// src/components/BotEditDialog/BotKnowledgeSettings.jsx - UPDATED
-import { useState, useRef } from "react"; // Add useRef
+// src/components/BotEditDialog/BotKnowledgeSettings.jsx - FIXED
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { FileText, Upload, X } from "lucide-react";
+import { useUserStore } from "@/store/useUserStore"; // Import user store
 
 export default function BotKnowledgeSettings({ bot, onChange }) {
   const files = bot?.files || [];
-  const fileInputRef = useRef(null); // Add ref for file input
+  const fileInputRef = useRef(null);
+  const { user } = useUserStore(); // Get actual user data
 
   const handleFileUpload = async (event) => {
     const selectedFiles = Array.from(event.target.files);
 
-    // Create file objects for the store
+    // Create file objects with ACTUAL user ID (not placeholders)
     const newFiles = selectedFiles.map((file) => ({
       filename: file.name,
       storedAs: `temp_${Date.now()}_${file.name}`,
       size: file.size,
       mimetype: file.type,
-      uploadedBy: "current-user",
-      tenantId: "current-tenant",
+      uploadedBy: user?.id || "unknown-user", // ✅ Use actual user ID
+      // REMOVED: tenantId - no longer needed
       // Store the actual file object for upload
-      fileObject: file, // This is crucial for actual upload
+      fileObject: file,
     }));
 
     // Update store with new files
@@ -37,7 +39,6 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
     onChange({ files: updatedFiles });
   };
 
-  // Add manual trigger for file input
   const triggerFileInput = () => {
     fileInputRef.current?.click();
   };
@@ -56,7 +57,7 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
             Drag and drop files here, or click to browse
           </p>
           <input
-            ref={fileInputRef} // Add ref here
+            ref={fileInputRef}
             type="file"
             multiple
             onChange={handleFileUpload}
@@ -64,11 +65,7 @@ export default function BotKnowledgeSettings({ bot, onChange }) {
             id="file-upload"
             accept=".pdf,.doc,.docx,.txt,.md,.csv"
           />
-          <Button
-            onClick={triggerFileInput} // Use onClick instead of asChild
-            variant="outline"
-            type="button"
-          >
+          <Button onClick={triggerFileInput} variant="outline" type="button">
             <Upload className="h-4 w-4 mr-2" />
             Upload Files
           </Button>

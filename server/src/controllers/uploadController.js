@@ -1,31 +1,22 @@
-// server/src/controllers/uploadController.js
 import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
 import { nanoid } from "nanoid";
-import pythonService from "../../services/pythonService.js";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import axios from "axios";
-import { readBots, writeBots } from "./botController.js";
+import { updateBotFiles } from "./botController.js";
 
-// Configure multer (moved from routes)
-const UPLOAD_DIR = path.resolve(
-  process.cwd(),
-  process.env.UPLOAD_DIR || "uploads"
-);
-
-// Ensure upload directory exists
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const id = nanoid();
-    const safe = file.originalname.replace(/[^\w.\-]+/g, "_");
-    cb(null, `${id}__${safe}`);
+// Configure AWS S3
+const s3Client = new S3Client({
+  region: process.env.AWS_DEFAULT_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
+
+// Configure multer for memory storage (we'll stream to S3)
+const storage = multer.memoryStorage();
 
 const ALLOWED_MIME = new Set([
   "application/pdf",
@@ -46,9 +37,8 @@ export const upload = multer({
 });
 
 export const uploadFiles = async (req, res, next) => {
-  // Track if we've started processing to avoid duplicates
   let processingStarted = false;
-  const processedFiles = []; // Track files we've processed
+  const processedFiles = [];
 
   try {
     console.log("=== UPLOAD DEBUG START ===");
@@ -58,8 +48,6 @@ export const uploadFiles = async (req, res, next) => {
       req.files
         ? req.files.map((f) => ({
             originalname: f.originalname,
-            filename: f.filename,
-            path: f.path,
             size: f.size,
           }))
         : "No files"
@@ -77,13 +65,11 @@ export const uploadFiles = async (req, res, next) => {
 
     console.log(
       `📁 Received ${req.files.length} files from multer:`,
-      req.files.map((f) => ({ original: f.originalname, stored: f.filename }))
+      req.files.map((f) => ({ original: f.originalname, size: f.size }))
     );
 
     const { botId } = req.body;
     if (!botId) {
-      // Clean up uploaded files if botId is missing
-      await cleanupFiles(req.files);
       return res.status(400).json({
         ok: false,
         error: "missing_bot_id",
@@ -95,40 +81,65 @@ export const uploadFiles = async (req, res, next) => {
     const results = [];
     const fileRecords = [];
 
-    // Process each file with Python RAG service
+    // Process each file - upload to S3 and ingest to RAG
     for (const file of req.files) {
       try {
-        console.log(
-          `🔍 Processing file: ${file.originalname} -> ${file.filename}`
-        );
+        console.log(`🔍 Processing file: ${file.originalname}`);
 
-        // Check if this file was already processed (in case of retry)
-        if (processedFiles.includes(file.filename)) {
-          console.log(`⚠️ File ${file.filename} already processed, skipping`);
+        if (processedFiles.includes(file.originalname)) {
+          console.log(
+            `⚠️ File ${file.originalname} already processed, skipping`
+          );
           continue;
         }
 
-        processedFiles.push(file.filename);
+        processedFiles.push(file.originalname);
 
+        // Generate S3 file key
+        const fileKey = `${nanoid()}__${file.originalname.replace(
+          /[^\w.\-]+/g,
+          "_"
+        )}`;
+
+        // Upload to S3
+        const uploadParams = {
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: fileKey,
+          Body: file.buffer,
+          ContentType: file.mimetype,
+          Metadata: {
+            originalName: file.originalname,
+            uploadedBy: req.user.userId || "unknown",
+            botId: botId,
+          },
+        };
+
+        await s3Client.send(new PutObjectCommand(uploadParams));
+
+        // Construct S3 URL for Python ingestion
+        const s3Url = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_DEFAULT_REGION}.amazonaws.com/${fileKey}`;
+
+        console.log(`✅ File uploaded to S3: ${file.originalname} -> ${s3Url}`);
+
+        // Ingest file via Python RAG service using S3 URL
         const pythonResponse = await axios.post(
           "http://localhost:8000/api/ingest",
           {
             bot_id: botId,
-            paths: [file.path],
+            paths: [s3Url], // Pass S3 URL instead of local path
             user_id: req.user.userId,
-            tenant_id: req.user.tenantId,
           }
         );
 
-        // Create file record
+        // Create file record with S3 info
         const fileRecord = {
           filename: file.originalname,
-          storedAs: file.filename,
+          storedAs: fileKey,
           size: file.size,
           mimetype: file.mimetype,
-          uploadedBy: req.user.userId,
-          tenantId: req.user.tenantId,
-          path: file.path,
+          uploadedBy: req.user.userId, // ✅ Use actual user ID, not placeholder
+          s3Url: s3Url,
+          s3Key: fileKey,
           uploadedAt: new Date().toISOString(),
         };
 
@@ -136,30 +147,19 @@ export const uploadFiles = async (req, res, next) => {
 
         results.push({
           filename: file.originalname,
-          storedAs: file.filename,
+          storedAs: fileKey,
           success: true,
           chunks: pythonResponse.data.chunks_added || 0,
-          path: file.path,
+          s3Url: s3Url,
         });
 
         console.log(
-          `✅ File ingested: ${file.originalname} -> ${file.filename} -> ${
+          `✅ File ingested from S3: ${file.originalname} -> ${
             pythonResponse.data.chunks_added || 0
           } chunks`
         );
       } catch (error) {
         console.error(`❌ Failed to process ${file.originalname}:`, error);
-
-        // Clean up the file that failed
-        try {
-          await fs.unlink(file.path);
-          console.log(`🧹 Cleaned up failed upload: ${file.filename}`);
-        } catch (cleanupError) {
-          console.log(
-            `⚠️ Could not clean up ${file.filename}:`,
-            cleanupError.message
-          );
-        }
 
         results.push({
           filename: file.originalname,
@@ -169,37 +169,33 @@ export const uploadFiles = async (req, res, next) => {
       }
     }
 
-    // Update bot with file records
+    // Update bot with file records in MongoDB
     if (fileRecords.length > 0) {
       try {
-        const botsData = await readBots();
-        const botIndex = botsData.bots.findIndex(
-          (bot) => bot.id === botId && bot.ownerId === req.user.userId
+        const updatedBot = await updateBotFiles(
+          botId,
+          req.user.userId,
+          fileRecords
         );
 
-        if (botIndex !== -1) {
-          // Replace files array with correct records
-          botsData.bots[botIndex].files = fileRecords;
-          botsData.bots[botIndex].updatedAt = new Date().toISOString();
-          await writeBots(botsData);
+        if (updatedBot) {
           console.log(
-            `✅ Updated bot ${botId} with ${fileRecords.length} files:`,
+            `✅ Updated bot ${botId} with ${fileRecords.length} S3 files in MongoDB:`,
             fileRecords.map((f) => ({
               filename: f.filename,
-              storedAs: f.storedAs,
+              s3Key: f.s3Key,
             }))
           );
         } else {
           console.error(
-            `❌ Bot ${botId} not found for user ${req.user.userId}`
+            `❌ Bot ${botId} not found for user ${req.user.userId} in MongoDB`
           );
-          // Clean up files if bot not found
-          await cleanupFiles(req.files);
         }
       } catch (botError) {
-        console.error("❌ Failed to update bot with file records:", botError);
-        // Clean up files if update fails
-        await cleanupFiles(req.files);
+        console.error(
+          "❌ Failed to update bot with S3 file records in MongoDB:",
+          botError
+        );
       }
     }
 
@@ -210,25 +206,9 @@ export const uploadFiles = async (req, res, next) => {
       totalProcessed: fileRecords.length,
     });
   } catch (error) {
-    // Clean up files on any error
-    if (processingStarted && req.files) {
-      await cleanupFiles(req.files);
-    }
     next(error);
   }
 };
-
-// Helper function to clean up files
-async function cleanupFiles(files) {
-  for (const file of files) {
-    try {
-      await fs.unlink(file.path);
-      console.log(`🧹 Cleaned up: ${file.filename}`);
-    } catch (error) {
-      console.log(`⚠️ Could not clean up ${file.filename}:`, error.message);
-    }
-  }
-}
 
 // Error handler middleware
 export const handleUploadErrors = (error, req, res, next) => {

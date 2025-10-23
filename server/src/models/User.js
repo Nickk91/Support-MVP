@@ -3,13 +3,13 @@ import mongoose from "mongoose";
 
 const UserSchema = new mongoose.Schema(
   {
+    // MongoDB will provide _id as ObjectId (user's unique identifier)
     email: {
       type: String,
       required: true,
-      unique: true, // ✅ Only this - creates the index
+      unique: true,
       lowercase: true,
       trim: true,
-      // ❌ No index: true here
     },
     passwordHash: { type: String, required: true },
     firstName: { type: String, required: true, trim: true },
@@ -21,12 +21,7 @@ const UserSchema = new mongoose.Schema(
       default: "client_admin",
     },
     isActive: { type: Boolean, default: true },
-    tenantId: {
-      type: String,
-      required: true,
-      unique: true, // ✅ Only this - creates the index
-      // ❌ No index: true here
-    },
+    // REMOVED: tenantId field entirely
     plan: {
       type: String,
       enum: ["starter", "pro", "enterprise"],
@@ -37,7 +32,5 @@ const UserSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
-
-// ❌ No additional schema.index() calls for email or tenantId
 
 export const User = mongoose.models.User || mongoose.model("User", UserSchema);

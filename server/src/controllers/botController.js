@@ -1,37 +1,8 @@
-// server/src/controllers/botController.js - UPDATED
+import { Bot } from "../models/Bot.js";
+import { User } from "../models/User.js";
+import { nanoid } from "nanoid";
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Path to JSON files
-const BOTS_FILE = path.join(__dirname, "../../data/bots/bots.json");
-const USERS_FILE = path.join(__dirname, "../../data/users/users.json");
-
-// Helper functions
-async function readUsers() {
-  try {
-    const data = await fs.readFile(USERS_FILE, "utf8");
-    return JSON.parse(data);
-  } catch (error) {
-    return { users: [], lastId: 0 };
-  }
-}
-
-export async function readBots() {
-  try {
-    const data = await fs.readFile(BOTS_FILE, "utf8");
-    return JSON.parse(data);
-  } catch (error) {
-    return { bots: [], lastId: 0 };
-  }
-}
-
-export async function writeBots(botsData) {
-  await fs.writeFile(BOTS_FILE, JSON.stringify(botsData, null, 2));
-}
 
 // Create new bot with Python RAG integration
 export const createBot = async (req, res) => {
@@ -49,7 +20,6 @@ export const createBot = async (req, res) => {
     } = req.body;
 
     console.log("🤖 Creating bot for user:", req.user.userId);
-    console.log("🏢 Tenant:", req.user.tenantId);
 
     // Validation
     if (!botName || !model) {
@@ -60,9 +30,8 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Read users data to verify user exists
-    const usersData = await readUsers();
-    const user = usersData.users.find((u) => u.id === req.user.userId);
+    // Verify user exists in MongoDB
+    const user = await User.findOne({ _id: req.user.userId });
     if (!user) {
       console.error("❌ User not found:", req.user.userId);
       return res.status(400).json({
@@ -72,16 +41,11 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Read existing bots
-    const botsData = await readBots();
-
     // Check for duplicate bot name within user's bots
-    const duplicateBot = botsData.bots.find(
-      (bot) =>
-        bot.botName === botName &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId
-    );
+    const duplicateBot = await Bot.findOne({
+      botName: botName,
+      ownerId: req.user.userId,
+    });
 
     if (duplicateBot) {
       return res.status(400).json({
@@ -91,36 +55,37 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Create new bot
-    const botId = (botsData.lastId + 1).toString();
+    // Create new bot with nanoid for ID
+    const botId = nanoid();
 
-    const newBot = {
-      id: botId,
+    // Ensure files have proper uploadedBy values
+    const processedFiles = (files || []).map((file) => ({
+      ...file,
+      uploadedBy: req.user.userId, // Ensure this is the actual user ID, not "current-user"
+    }));
+
+    const newBot = new Bot({
+      _id: botId,
       botName,
       model,
       systemMessage: systemMessage || "",
       fallback: fallback || "",
       greeting: greeting || "",
       guardrails: guardrails || "",
-      temperature: temperature || 0.7,
+      temperature: temperature || 0.1,
       escalation: escalation || { enabled: false, escalation_email: "" },
-      files: files || [],
-      tenantId: req.user.tenantId,
+      files: processedFiles, // Use processed files with proper uploadedBy
       ownerId: req.user.userId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
-    // Add bot to data and update lastId
-    botsData.bots.push(newBot);
-    botsData.lastId = parseInt(botId);
-    await writeBots(botsData);
+    await newBot.save();
 
-    console.log("✅ Bot created in JSON:", {
+    console.log("✅ Bot created in MongoDB:", {
       id: botId,
       botName,
       ownerId: req.user.userId,
-      tenantId: req.user.tenantId,
     });
 
     // 🐍 Python RAG Integration - Register bot
@@ -135,7 +100,6 @@ export const createBot = async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           "X-User-ID": req.user.userId,
-          "X-Tenant-ID": req.user.tenantId,
         },
         body: JSON.stringify({
           bot_id: botId,
@@ -143,7 +107,6 @@ export const createBot = async (req, res) => {
           system_message: systemMessage,
           model: model,
           fallback: fallback,
-          tenant_id: req.user.tenantId,
           owner_id: req.user.userId,
         }),
       });
@@ -208,17 +171,13 @@ export const updateBot = async (req, res) => {
       temperature,
     } = req.body;
 
-    const botsData = await readBots();
+    // Find bot with ownerId security check
+    const bot = await Bot.findOne({
+      _id: req.params.id,
+      ownerId: req.user.userId,
+    });
 
-    // ✅ Check both ownerId and tenantId for security
-    const botIndex = botsData.bots.findIndex(
-      (bot) =>
-        bot.id === req.params.id &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId
-    );
-
-    if (botIndex === -1) {
+    if (!bot) {
       return res.status(404).json({
         ok: false,
         error: "bot_not_found",
@@ -227,41 +186,37 @@ export const updateBot = async (req, res) => {
     }
 
     // Check for duplicate name (only within user's own bots)
-    const duplicateBot = botsData.bots.find(
-      (bot) =>
-        bot.botName === botName &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId &&
-        bot.id !== req.params.id
-    );
-
-    if (duplicateBot) {
-      return res.status(400).json({
-        ok: false,
-        error: "duplicate_bot",
-        message: "You already have a bot with this name",
+    if (botName !== bot.botName) {
+      const duplicateBot = await Bot.findOne({
+        botName: botName,
+        ownerId: req.user.userId,
+        _id: { $ne: req.params.id },
       });
+
+      if (duplicateBot) {
+        return res.status(400).json({
+          ok: false,
+          error: "duplicate_bot",
+          message: "You already have a bot with this name",
+        });
+      }
     }
 
     // Update bot
-    const updatedBot = {
-      ...botsData.bots[botIndex],
-      botName,
-      model,
-      systemMessage,
-      fallback,
-      greeting: greeting || "",
-      guardrails: guardrails || "",
-      temperature: temperature || 0.7,
-      escalation,
-      files,
-      updatedAt: new Date().toISOString(),
-    };
+    bot.botName = botName;
+    bot.model = model;
+    bot.systemMessage = systemMessage || "";
+    bot.fallback = fallback || "";
+    bot.greeting = greeting || "";
+    bot.guardrails = guardrails || "";
+    bot.temperature = temperature || 0.1;
+    bot.escalation = escalation || { enabled: false, escalation_email: "" };
+    bot.files = files || [];
+    bot.updatedAt = new Date();
 
-    botsData.bots[botIndex] = updatedBot;
-    await writeBots(botsData);
+    await bot.save();
 
-    console.log("✅ Bot updated:", {
+    console.log("✅ Bot updated in MongoDB:", {
       id: req.params.id,
       botName,
       ownerId: req.user.userId,
@@ -276,7 +231,6 @@ export const updateBot = async (req, res) => {
           headers: {
             "Content-Type": "application/json",
             "X-User-ID": req.user.userId,
-            "X-Tenant-ID": req.user.tenantId,
           },
           body: JSON.stringify({
             bot_name: botName,
@@ -303,7 +257,7 @@ export const updateBot = async (req, res) => {
 
     res.json({
       ok: true,
-      bot: updatedBot,
+      bot: bot,
     });
   } catch (error) {
     console.error("[bot:update] error:", error);
@@ -318,13 +272,10 @@ export const updateBot = async (req, res) => {
 // Get all bots for user (only user's own bots)
 export const getBots = async (req, res) => {
   try {
-    const botsData = await readBots();
-
-    // ✅ Filter by both ownerId AND tenantId for security
-    const userBots = botsData.bots.filter(
-      (bot) =>
-        bot.ownerId === req.user.userId && bot.tenantId === req.user.tenantId
-    );
+    // Find bots by ownerId for security
+    const userBots = await Bot.find({
+      ownerId: req.user.userId,
+    }).sort({ createdAt: -1 });
 
     console.log(`📊 Found ${userBots.length} bots for user ${req.user.userId}`);
 
@@ -346,15 +297,11 @@ export const getBots = async (req, res) => {
 // Get single bot (with ownerId security)
 export const getBot = async (req, res) => {
   try {
-    const botsData = await readBots();
-
-    // ✅ Check both ownerId and tenantId for security
-    const bot = botsData.bots.find(
-      (bot) =>
-        bot.id === req.params.id &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId
-    );
+    // Find bot with ownerId security check
+    const bot = await Bot.findOne({
+      _id: req.params.id,
+      ownerId: req.user.userId,
+    });
 
     if (!bot) {
       return res.status(404).json({
@@ -381,17 +328,13 @@ export const getBot = async (req, res) => {
 // Delete bot (with ownerId security)
 export const deleteBot = async (req, res) => {
   try {
-    const botsData = await readBots();
+    // Find bot with ownerId security check
+    const bot = await Bot.findOne({
+      _id: req.params.id,
+      ownerId: req.user.userId,
+    });
 
-    // ✅ Check both ownerId and tenantId for security
-    const botIndex = botsData.bots.findIndex(
-      (bot) =>
-        bot.id === req.params.id &&
-        bot.ownerId === req.user.userId &&
-        bot.tenantId === req.user.tenantId
-    );
-
-    if (botIndex === -1) {
+    if (!bot) {
       return res.status(404).json({
         ok: false,
         error: "bot_not_found",
@@ -399,33 +342,28 @@ export const deleteBot = async (req, res) => {
       });
     }
 
-    const deletedBot = botsData.bots[botIndex];
-
-    // 🗂️ Delete uploaded files from server file system
-    if (deletedBot.files && deletedBot.files.length > 0) {
+    // 🗂️ Delete uploaded files from server file system (if any local files exist)
+    if (bot.files && bot.files.length > 0) {
       try {
-        await deleteBotFiles(deletedBot.files);
-        console.log(
-          `✅ Deleted ${deletedBot.files.length} files for bot ${deletedBot.id}`
-        );
+        await deleteBotFiles(bot.files);
+        console.log(`✅ Deleted ${bot.files.length} files for bot ${bot._id}`);
       } catch (fileError) {
         console.warn(
-          `⚠️ File cleanup failed for bot ${deletedBot.id}:`,
+          `⚠️ File cleanup failed for bot ${bot._id}:`,
           fileError.message
         );
         // Continue with bot deletion even if file cleanup fails
       }
     }
 
-    // Remove bot from database
-    botsData.bots.splice(botIndex, 1);
-    await writeBots(botsData);
+    // Remove bot from MongoDB
+    await Bot.deleteOne({ _id: req.params.id });
 
-    console.log("🗑️ Bot deleted:", {
+    console.log("🗑️ Bot deleted from MongoDB:", {
       id: req.params.id,
-      botName: deletedBot.botName,
+      botName: bot.botName,
       ownerId: req.user.userId,
-      filesDeleted: deletedBot.files?.length || 0,
+      filesDeleted: bot.files?.length || 0,
     });
 
     // 🐍 Delete bot from Python RAG service
@@ -436,7 +374,6 @@ export const deleteBot = async (req, res) => {
           method: "DELETE",
           headers: {
             "X-User-ID": req.user.userId,
-            "X-Tenant-ID": req.user.tenantId,
           },
         }
       );
@@ -462,9 +399,9 @@ export const deleteBot = async (req, res) => {
       ok: true,
       message: "Bot deleted successfully",
       deletedBot: {
-        id: deletedBot.id,
-        botName: deletedBot.botName,
-        filesDeleted: deletedBot.files?.length || 0,
+        id: bot._id,
+        botName: bot.botName,
+        filesDeleted: bot.files?.length || 0,
       },
     });
   } catch (error) {
@@ -477,10 +414,7 @@ export const deleteBot = async (req, res) => {
   }
 };
 
-// Helper function to delete physical files
-// server/src/controllers/botController.js - UPDATE deleteBotFiles function
-
-// Helper function to delete physical files
+// Helper function to delete physical files (for any remaining local files)
 async function deleteBotFiles(files) {
   console.log(`🗑️ Starting file deletion for ${files.length} files...`);
 
@@ -488,7 +422,6 @@ async function deleteBotFiles(files) {
     try {
       // Files are stored in the uploads directory with the storedAs filename
       if (file.storedAs) {
-        // Use the same path resolution as in uploadController
         const UPLOAD_DIR = path.resolve(
           process.cwd(),
           process.env.UPLOAD_DIR || "uploads"
@@ -496,11 +429,6 @@ async function deleteBotFiles(files) {
         const filePath = path.join(UPLOAD_DIR, file.storedAs);
 
         console.log(`🔍 Attempting to delete file: ${filePath}`);
-        console.log(`📁 File record:`, {
-          original: file.filename,
-          storedAs: file.storedAs,
-          path: file.path,
-        });
 
         // Check if file exists before trying to delete
         try {
@@ -514,48 +442,7 @@ async function deleteBotFiles(files) {
             console.log(
               `ℹ️ File already deleted or not found: ${file.storedAs}`
             );
-            // Also check if the file might be at the path stored in the file record
-            if (file.path && file.path !== filePath) {
-              try {
-                await fs.access(file.path);
-                console.log(`🔍 Found file at alternative path: ${file.path}`);
-                await fs.unlink(file.path);
-                console.log(
-                  `✅ Successfully deleted file from alternative path: ${file.path}`
-                );
-                return {
-                  success: true,
-                  file: file.storedAs,
-                  alternativePath: true,
-                };
-              } catch (altError) {
-                // Ignore alternative path errors
-              }
-            }
             return { success: true, file: file.storedAs, alreadyGone: true };
-          } else if (error.code === "EPERM" || error.code === "EBUSY") {
-            console.warn(
-              `⚠️ File locked or permission denied: ${file.storedAs}`
-            );
-            // Try again with a small delay
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            try {
-              await fs.unlink(filePath);
-              console.log(
-                `✅ Successfully deleted file on retry: ${file.storedAs}`
-              );
-              return { success: true, file: file.storedAs, retry: true };
-            } catch (retryError) {
-              console.error(
-                `❌ Still cannot delete file: ${file.storedAs}`,
-                retryError.message
-              );
-              return {
-                success: false,
-                file: file.storedAs,
-                error: retryError.message,
-              };
-            }
           }
           throw error;
         }
@@ -585,17 +472,32 @@ async function deleteBotFiles(files) {
     `📊 File deletion summary: ${successful} successful, ${failed} failed out of ${files.length} total`
   );
 
-  // Log detailed results
-  results.forEach((result) => {
-    if (!result.success) {
-      console.error(`❌ Failed: ${result.file} - ${result.error}`);
-    }
-  });
-
   return results;
 }
 
-// server/src/controllers/botController.js - ADD this debug function
+// Update bot files (used by upload controller)
+export const updateBotFiles = async (botId, ownerId, fileRecords) => {
+  try {
+    const bot = await Bot.findOneAndUpdate(
+      {
+        _id: botId,
+        ownerId: ownerId,
+      },
+      {
+        $set: {
+          files: fileRecords,
+          updatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    return bot;
+  } catch (error) {
+    console.error("Error updating bot files:", error);
+    throw error;
+  }
+};
 
 // Debug endpoint to check uploads folder (remove in production)
 export const debugUploads = async (req, res) => {

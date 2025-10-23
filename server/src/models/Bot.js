@@ -1,53 +1,46 @@
-// server/src/models/Bot.js - UPDATED
+// server/src/models/Bot.js
 import mongoose from "mongoose";
 
-const EscalationSchema = new mongoose.Schema(
+const fileSchema = new mongoose.Schema(
+  {
+    filename: String,
+    storedAs: String,
+    size: Number,
+    mimetype: String,
+    uploadedBy: { type: String, required: true }, // ✅ Changed from ObjectId to String
+    s3Url: String,
+    s3Key: String,
+    uploadedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const escalationSchema = new mongoose.Schema(
   {
     enabled: { type: Boolean, default: false },
-    escalation_email: { type: String, default: "" }, // ✅ Changed to escalation_email
+    escalation_email: String,
   },
   { _id: false }
 );
 
-const FileSchema = new mongoose.Schema(
-  {
-    filename: { type: String, required: true },
-    storedAs: { type: String, required: true },
-    size: { type: Number, required: true, min: 0 },
-    mimetype: { type: String, required: true },
+const botSchema = new mongoose.Schema({
+  _id: { type: String },
+  botName: { type: String, required: true },
+  model: { type: String, required: true },
+  systemMessage: String,
+  fallback: String,
+  greeting: String,
+  guardrails: String,
+  temperature: { type: Number, default: 0.1 },
+  escalation: escalationSchema,
+  files: [fileSchema],
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
   },
-  { _id: false }
-);
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
 
-const BotSchema = new mongoose.Schema(
-  {
-    botName: { type: String, required: true, trim: true, maxlength: 50 },
-    systemMessage: { type: String, default: "", maxlength: 2000 },
-    model: {
-      type: String,
-      required: true,
-      enum: ["gpt-4o-mini", "gpt-4o", "claude-3-5-sonnet", "llama-3.1-70b"],
-    },
-    fallback: { type: String, default: "", maxlength: 200 },
-    escalation: { type: EscalationSchema, default: () => ({}) },
-    files: { type: [FileSchema], default: [] },
-
-    // Multi-tenant fields
-    tenantId: {
-      type: String,
-      required: true,
-      index: true,
-    },
-    ownerId: {
-      type: String,
-      required: true,
-      index: true,
-    },
-  },
-  { timestamps: true }
-);
-
-// ✅ Keep this compound index
-BotSchema.index({ tenantId: 1, botName: 1 }, { unique: true });
-
-export const Bot = mongoose.models.Bot || mongoose.model("Bot", BotSchema);
+export const Bot = mongoose.model("Bot", botSchema);

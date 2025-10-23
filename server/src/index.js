@@ -1,4 +1,3 @@
-// server/src/index.js
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -11,19 +10,24 @@ import uploadsRoutes from "./routes/uploads.js";
 import botsRoutes from "./routes/bots.js";
 import { requestLogger, errorLogger } from "./lib/logger.js";
 import { ensureUploadDir } from "./lib/fsutil.js";
-import { connectMongo } from "./lib/mongo.js";
+import { connectMongoose } from "./lib/mongo.js"; // CHANGED: connectMongoose instead of connectMongo
 import authRoutes from "./routes/auth.js";
 import ragRoutes from "./routes/rag.js";
 import chatRoutes from "./routes/chat.js";
 import { sanitizeInput } from "./middleware/sanitizeHtmlMiddleware.js";
 
 async function main() {
-  // Connect to Mongo if enabled
-  // if (process.env.USE_MONGO === "1") {
-  //   await connectMongo(process.env.MONGODB_URI);
-  //   console.log("[mongo] connected");
-  // }
+  // Connect to MongoDB (REPLACED the commented section)
+  try {
+    await connectMongoose();
+    console.log("✅ MongoDB connected via Mongoose");
+  } catch (error) {
+    console.error("❌ MongoDB connection failed:", error);
+    process.exit(1);
+  }
 
+  // Note: We don't need ensureUploadDir anymore since we're using S3 memory storage
+  // But keeping it for now for compatibility
   const uploadDir = process.env.UPLOAD_DIR || "uploads";
   await ensureUploadDir(uploadDir);
 
@@ -146,10 +150,36 @@ async function main() {
     }
   });
 
+  // MongoDB health check (NEW)
+  app.get("/api/mongo-health", async (_req, res) => {
+    try {
+      const mongoose = await import("mongoose");
+      const status = mongoose.connection.readyState;
+      const statusText = {
+        0: "disconnected",
+        1: "connected",
+        2: "connecting",
+        3: "disconnecting",
+      }[status];
+
+      res.json({
+        ok: status === 1,
+        status: statusText,
+        db: mongoose.connection.db?.databaseName || "unknown",
+      });
+    } catch (error) {
+      res.json({
+        ok: false,
+        status: "error",
+        error: error.message,
+      });
+    }
+  });
+
   // Apply auth rate limiting to auth routes
   app.use("/api/auth", authLimiter);
 
-  // Optionally serve uploaded files (useful for previews)
+  // Optionally serve uploaded files (useful for previews) - Still useful for any legacy files
   app.use("/uploads", express.static(path.resolve(process.cwd(), uploadDir)));
 
   // API Routes
@@ -191,6 +221,7 @@ async function main() {
   app.listen(port, () => {
     console.log(`🔒 Secure API running on http://localhost:${port}`);
     console.log(`📊 Rate limiting: ${rateLimitConfig.max} requests per 15min`);
+    console.log(`🗄️  MongoDB: Connected to rag-platform database`);
   });
 }
 

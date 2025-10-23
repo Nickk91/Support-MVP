@@ -1,4 +1,4 @@
-// src/pages/Dashboard/Dashboard.jsx - UPDATED WITH LOADING STATES
+// src/pages/Dashboard/Dashboard.jsx - FIXED RESPONSE HANDLING
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import BotCard from "../../components/BotCard/BotCard";
@@ -99,18 +99,23 @@ export default function Dashboard() {
   const handleConfirmDelete = async (bot) => {
     if (!bot) return;
 
-    console.log("🔍 DEBUG: Starting deletion for bot:", bot.id);
+    console.log("🔍 DEBUG: Starting deletion for bot:", bot._id || bot.id);
     setDeleteLoading(true);
 
     toast.loading(`Deleting "${bot.botName}"...`, { id: "bot-delete" });
 
     try {
-      await api.delete(`/bots/${bot.id}`);
-      console.log("🔍 DEBUG: Bot deletion API call completed for:", bot.id);
+      await api.delete(`/bots/${bot._id || bot.id}`);
+      console.log(
+        "🔍 DEBUG: Bot deletion API call completed for:",
+        bot._id || bot.id
+      );
 
       // Remove from local state
       setBots((prev) => {
-        const newBots = prev.filter((b) => b.id !== bot.id);
+        const newBots = prev.filter(
+          (b) => (b._id || b.id) !== (bot._id || bot.id)
+        );
         console.log(
           "🔍 DEBUG: Local state updated, remaining bots:",
           newBots.length
@@ -125,7 +130,11 @@ export default function Dashboard() {
       setDeleteDialogOpen(false);
       setBotToDelete(null);
     } catch (error) {
-      console.error("🔍 DEBUG: Delete failed for bot:", bot.id, error);
+      console.error(
+        "🔍 DEBUG: Delete failed for bot:",
+        bot._id || bot.id,
+        error
+      );
       const errorMessage = error.message || "Failed to delete bot";
       toast.error(errorMessage, { id: "bot-delete" });
     } finally {
@@ -141,7 +150,9 @@ export default function Dashboard() {
       console.log("🔍 DEBUG: handleSaveBot called with savedBot:", savedBot);
       console.log("🔍 DEBUG: Files in savedBot:", savedBot.files);
 
-      const endpoint = selectedBot ? `/bots/${selectedBot.id}` : "/bots";
+      // ✅ FIXED: Handle both _id and id for bot identification
+      const botId = selectedBot ? selectedBot._id || selectedBot.id : null;
+      const endpoint = selectedBot ? `/bots/${botId}` : "/bots";
       const method = selectedBot ? "put" : "post";
 
       console.log("💾 Saving bot to:", endpoint);
@@ -153,8 +164,14 @@ export default function Dashboard() {
 
       // First, create/update the bot to get the bot ID
       const response = await api[method](endpoint, savedBot);
-      const botId = response.data.bot.id;
-      console.log("🔍 DEBUG: Bot created with ID:", botId);
+      console.log("🔍 DEBUG: Full bot response:", response.data);
+
+      // ✅ FIXED: Handle response structure properly
+      const createdBot = response.data.bot || response.data;
+      const createdBotId = createdBot._id || createdBot.id;
+
+      console.log("🔍 DEBUG: Bot created with ID:", createdBotId);
+      console.log("🔍 DEBUG: Created bot data:", createdBot);
 
       // Update success message
       toast.success(
@@ -164,30 +181,30 @@ export default function Dashboard() {
         }
       );
 
-      // Update local state immediately with the new bot
+      // ✅ FIXED: Update local state with proper ID handling
       if (selectedBot) {
         setBots((prev) =>
-          prev.map((b) =>
-            b.id === response.data.bot.id ? response.data.bot : b
-          )
+          prev.map((b) => ((b._id || b.id) === createdBotId ? createdBot : b))
         );
       } else {
         setBots((prev) => {
           // Check if bot already exists to prevent duplicates
-          const exists = prev.some((bot) => bot.id === response.data.bot.id);
+          const exists = prev.some(
+            (bot) => (bot._id || bot.id) === createdBotId
+          );
           if (exists) {
             return prev.map((bot) =>
-              bot.id === response.data.bot.id ? response.data.bot : bot
+              (bot._id || bot.id) === createdBotId ? createdBot : bot
             );
           } else {
-            return [...prev, response.data.bot];
+            return [...prev, createdBot];
           }
         });
       }
 
       // If there are files to upload, process them
       if (savedBot.files && savedBot.files.length > 0) {
-        console.log("📁 Processing files for bot:", botId);
+        console.log("📁 Processing files for bot:", createdBotId);
         console.log("🔍 DEBUG: File metadata:", savedBot.files);
 
         setFileUploadLoading(true);
@@ -199,7 +216,10 @@ export default function Dashboard() {
           });
 
           // Upload files to the server for ingestion
-          const uploadResponse = await uploadBotFiles(botId, savedBot.files);
+          const uploadResponse = await uploadBotFiles(
+            createdBotId,
+            savedBot.files
+          );
           console.log("✅ Files uploaded successfully:", uploadResponse.data);
 
           // Success message for file upload
@@ -321,9 +341,7 @@ export default function Dashboard() {
 
   const handleInspectBot = (bot) => {
     // Navigate to the document inspector for this bot
-    window.open(`/inspect/${bot.id}`, "_blank");
-    // Or if you prefer same-tab navigation:
-    // navigate(`/inspect/${bot.id}`);
+    window.open(`/inspect/${bot._id || bot.id}`, "_blank");
   };
 
   if (loading) {
@@ -408,13 +426,11 @@ export default function Dashboard() {
             <CardContent className="p-6">
               <div className="flex items-center">
                 <Bot className="h-8 w-8 text-blue-600" />
-                <div className="ml-10 flex flex-col m">
-                  <p className="text-sm font-medium text-muted-foreground text-center">
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-muted-foreground">
                     Total Bots
                   </p>
-                  <p className="text-2xl font-bold text-center ">
-                    {bots.length}
-                  </p>
+                  <p className="text-2xl font-bold">{bots.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -428,7 +444,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Active Conversations
                   </p>
-                  <p className="text-2xl font-bold text-center">0</p>
+                  <p className="text-2xl font-bold">0</p>
                 </div>
               </div>
             </CardContent>
@@ -442,7 +458,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Total Documents
                   </p>
-                  <p className="text-2xl font-bold text-center">
+                  <p className="text-2xl font-bold">
                     {bots.reduce(
                       (total, bot) => total + (bot.files?.length || 0),
                       0
@@ -461,7 +477,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {bots.map((bot) => (
                 <BotCard
-                  key={bot.id}
+                  key={bot._id || bot.id}
                   bot={bot}
                   onEdit={() => handleEditBot(bot)}
                   onDelete={() => handleDeleteClick(bot)}

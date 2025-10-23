@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Bot, Edit, Trash2, FileText, MessageSquare, Eye } from "lucide-react";
 
 export default function BotCard({ bot, onEdit, onDelete, onInspect }) {
+  const botId = bot._id || bot.id;
   const handleDeleteClick = (e) => {
     e.stopPropagation(); // Prevent triggering edit
     onDelete(bot);

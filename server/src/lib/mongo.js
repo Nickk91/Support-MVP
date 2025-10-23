@@ -1,41 +1,56 @@
-// server/src/lib/mongo.js
+import { MongoClient } from "mongodb";
 import mongoose from "mongoose";
 
-let cached = global._mongoose; // so hot reloads don't create new connections
+let cachedClient = null;
+let cachedDb = null;
 
-if (!cached) {
-  cached = global._mongoose = { conn: null, promise: null };
+export async function connectMongoose() {
+  // Use environment variable for connection string
+  const MONGODB_URI = process.env.MONGODB_URI;
+
+  if (!MONGODB_URI) {
+    console.error("❌ MONGODB_URI environment variable is required");
+    console.log("💡 Please add MONGODB_URI to your .env file");
+    console.log(
+      "💡 Format: mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/database?retryWrites=true&w=majority"
+    );
+    process.exit(1);
+  }
+
+  console.log("🔧 Attempting to connect to MongoDB...");
+
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log("✅ Mongoose connected to MongoDB");
+  } catch (error) {
+    console.error("❌ MongoDB connection error:", error.message);
+    console.log("🔧 Please check:");
+    console.log("   - MongoDB Atlas connection string format");
+    console.log("   - Network connectivity");
+    console.log("   - IP whitelisting in MongoDB Atlas");
+    console.log("   - Database user credentials");
+    process.exit(1);
+  }
 }
 
 export async function connectMongo(uri) {
-  if (cached.conn) return cached.conn;
-  if (!uri) throw new Error("MONGODB_URI is not set");
-
-  mongoose.set("strictQuery", true);
-
-  if (!cached.promise) {
-    cached.promise = mongoose
-      .connect(uri, {
-        bufferCommands: false, // disable mongoose buffering if server down
-      })
-      .then((m) => m.connection);
+  if (cachedClient && cachedDb) {
+    return { client: cachedClient, db: cachedDb };
   }
 
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
+  const client = await MongoClient.connect(uri);
+  const db = client.db("rag-platform");
 
-  return cached.conn;
+  cachedClient = client;
+  cachedDb = db;
+
+  console.log("✅ Connected to MongoDB");
+  return { client, db };
 }
 
-// Optional: graceful shutdown
-process.on("SIGINT", async () => {
-  if (cached.conn) {
-    await mongoose.disconnect();
-    console.log("🔌 MongoDB connection closed (SIGINT)");
+export function getDb() {
+  if (!cachedDb) {
+    throw new Error("Database not initialized. Call connectMongo first.");
   }
-  process.exit(0);
-});
+  return cachedDb;
+}
