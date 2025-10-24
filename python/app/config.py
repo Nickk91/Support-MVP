@@ -6,13 +6,17 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-
 # Load once at process start
 load_dotenv()
 
 # ---- App / Server ----
 APP_ENV: str = os.getenv("APP_ENV", "development")
 APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
+
+# ---- MongoDB ----
+MONGODB_URI: str = os.getenv("MONGODB_URI", "")
+# Half-dynamic: always starts with "rag_platform_" + environment
+MONGODB_DB_NAME: str = f"rag_platform_{APP_ENV}"
 
 def _parse_csv(value: str, *, default: str = "*") -> List[str]:
     raw = (value or default).split(",")
@@ -37,9 +41,7 @@ OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 def ensure_dirs() -> None:
     VECTOR_ROOT.mkdir(parents=True, exist_ok=True)
 
-
-
-    # Database URL - using SQLite for development
+# Database URL - using SQLite for development
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./rag_platform.db")
 
 # Create engine

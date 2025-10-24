@@ -1,3 +1,4 @@
+// server\src\lib\mongo.js
 import { MongoClient } from "mongodb";
 import mongoose from "mongoose";
 
@@ -5,30 +6,24 @@ let cachedClient = null;
 let cachedDb = null;
 
 export async function connectMongoose() {
-  // Use environment variable for connection string
   const MONGODB_URI = process.env.MONGODB_URI;
+  const APP_ENV = process.env.APP_ENV || "development";
+  const DB_NAME = `rag_platform_${APP_ENV}`;
 
   if (!MONGODB_URI) {
     console.error("❌ MONGODB_URI environment variable is required");
-    console.log("💡 Please add MONGODB_URI to your .env file");
-    console.log(
-      "💡 Format: mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/database?retryWrites=true&w=majority"
-    );
     process.exit(1);
   }
 
-  console.log("🔧 Attempting to connect to MongoDB...");
+  console.log(`🔧 Attempting to connect to MongoDB database: ${DB_NAME}...`);
 
   try {
-    await mongoose.connect(MONGODB_URI);
-    console.log("✅ Mongoose connected to MongoDB");
+    await mongoose.connect(MONGODB_URI, {
+      dbName: DB_NAME, // This should set the database name
+    });
+    console.log(`✅ Mongoose connected to MongoDB database: ${DB_NAME}`);
   } catch (error) {
     console.error("❌ MongoDB connection error:", error.message);
-    console.log("🔧 Please check:");
-    console.log("   - MongoDB Atlas connection string format");
-    console.log("   - Network connectivity");
-    console.log("   - IP whitelisting in MongoDB Atlas");
-    console.log("   - Database user credentials");
     process.exit(1);
   }
 }

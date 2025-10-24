@@ -1,3 +1,4 @@
+// server/src/index.js
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -189,6 +190,33 @@ async function main() {
   app.use("/api/rag", ragRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/inspect", inspectionRoutes);
+
+  app.get("/api/debug/collections", async (req, res) => {
+    try {
+      const collections = await mongoose.connection.db
+        .listCollections()
+        .toArray();
+      const collectionInfo = await Promise.all(
+        collections.map(async (coll) => {
+          const count = await mongoose.connection.db
+            .collection(coll.name)
+            .countDocuments();
+          return {
+            name: coll.name,
+            count: count,
+            sample:
+              count > 0
+                ? await mongoose.connection.db.collection(coll.name).findOne()
+                : null,
+          };
+        })
+      );
+
+      res.json(collectionInfo);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // ========================
   // ERROR HANDLING
