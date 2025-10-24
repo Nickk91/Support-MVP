@@ -104,3 +104,50 @@ def load_paths(paths: List[str]) -> List[Document]:
             # Continue with other files even if one fails
             continue
     return docs
+
+
+def load_s3_paths(s3_urls: List[str]) -> List[Document]:
+    """Load documents from S3 URLs"""
+    s3_client = boto3.client('s3')
+    all_docs = []
+    
+    for s3_url in s3_urls:
+        try:
+            # Parse bucket and key from S3 URL
+            if 's3.amazonaws.com' in s3_url:
+                # Format: https://bucket.s3.region.amazonaws.com/key
+                bucket_start = s3_url.find('//') + 2
+                bucket_end = s3_url.find('.s3')
+                bucket = s3_url[bucket_start:bucket_end]
+                key_start = s3_url.find(bucket) + len(bucket) + 1
+                key = s3_url[key_start:]
+            else:
+                # Handle other S3 URL formats if needed
+                continue
+            
+            # Download file to temp location
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(key)[1]) as tmp_file:
+                s3_client.download_fileobj(bucket, key, tmp_file)
+                tmp_path = tmp_file.name
+            
+            # Load using existing loader
+            docs = load_paths([tmp_path])
+            
+            # Update metadata to show S3 source
+            for doc in docs:
+                doc.metadata['source'] = s3_url
+                doc.metadata['s3_bucket'] = bucket
+                doc.metadata['s3_key'] = key
+            
+            all_docs.extend(docs)
+            
+            # Clean up temp file
+            os.unlink(tmp_path)
+            
+            print(f"✅ Downloaded and processed S3 file: {s3_url}")
+            
+        except Exception as e:
+            print(f"❌ Failed to process S3 URL {s3_url}: {e}")
+            continue
+    
+    return all_docs
