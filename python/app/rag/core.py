@@ -13,6 +13,16 @@ from app.rag.inspection_store import InspectionStore
 
 logger = logging.getLogger(__name__)
 
+def is_s3_url(path: str) -> bool:
+    """Check if the path is an S3 URL that should be skipped."""
+    s3_indicators = [
+        'https://', 
+        '.s3.amazonaws.com',
+        '.s3.',
+        's3://'
+    ]
+    return any(indicator in path for indicator in s3_indicators)
+
 def ingest_files(
     bot_id: str,
     paths: List[str],
@@ -26,10 +36,11 @@ def ingest_files(
     logger.info(f"🔍 DEBUG ingest_files called with paths: {paths}")
     logger.info(f"🔍 DEBUG bot_id: {bot_id}, user_id: {user_id}")
     
+    # REMOVE the S3 filtering - let load_paths handle both local and S3
     # Initialize inspection store
     inspection_store = InspectionStore()
     
-    # Load documents
+    # Load documents - this will handle both local paths and S3 URLs
     docs = load_paths(paths)
     
     # DEBUG: Log what documents were loaded and their metadata
