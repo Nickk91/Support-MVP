@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
+from app.config import MONGODB_URI, MONGODB_DB_NAME, APP_ENV
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -15,22 +16,22 @@ class InspectionStore:
     def _init_mongodb(self):
         """Initialize MongoDB collections"""
         try:
-            # Use the same cloud MongoDB as Node.js
-            mongo_uri = os.getenv("MONGODB_URI")
+            # Use the environment-dependent MongoDB configuration
+            mongo_uri = MONGODB_URI
             if not mongo_uri:
                 print("⚠️ MONGODB_URI not found in environment variables")
                 self.mongo_client = None
                 return
                 
-            self.mongo_client = MongoClient(mongo_uidri)
-            self.mongo_db = self.mongo_client.rag_platform
+            self.mongo_client = MongoClient(mongo_uri)
+            self.mongo_db = self.mongo_client[MONGODB_DB_NAME]
             
             # Create collections if they don't exist
             self.mongo_db.documents.create_index([("bot_id", 1), ("document_path", 1)])
             self.mongo_db.chunks.create_index([("bot_id", 1), ("document_path", 1)])
             self.mongo_db.chunks.create_index([("chunk_index", 1)])
             
-            print("✅ MongoDB cloud inspection store initialized")
+            print(f"✅ MongoDB cloud inspection store initialized for database: {MONGODB_DB_NAME}")
         except Exception as e:
             print(f"⚠️ MongoDB cloud initialization failed: {e}")
             self.mongo_client = None

@@ -1,19 +1,20 @@
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from app.config import MONGODB_URI, MONGODB_DB_NAME
 
 # Load .env file
 load_dotenv()
 
-mongo_uri = os.getenv("MONGODB_URI")
+mongo_uri = MONGODB_URI
 client = MongoClient(mongo_uri)
-db = client.rag_platform
+db = client[MONGODB_DB_NAME]
 
 # Count documents
 doc_count = db.documents.count_documents({})
 chunk_count = db.chunks.count_documents({})
 
-print(f"Current MongoDB Stats:")
+print(f"Current MongoDB Stats (Database: {MONGODB_DB_NAME}):")
 print(f"   Documents: {doc_count}")
 print(f"   Chunks: {chunk_count}")
 

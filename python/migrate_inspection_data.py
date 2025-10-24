@@ -1,3 +1,5 @@
+# python\migrate_inspection_data.py
+
 import sqlite3
 import json
 import sys

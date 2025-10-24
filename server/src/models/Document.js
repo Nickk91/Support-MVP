@@ -1,3 +1,4 @@
+// server\src\models\Document.js
 import mongoose from "mongoose";
 
 const documentSchema = new mongoose.Schema(
