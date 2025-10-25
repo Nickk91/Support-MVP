@@ -1,4 +1,6 @@
-import InspectionStore from "../../services/inspectionStore.js";
+// server\src\controllers\inspectionController.js
+
+import InspectionStore from "../services/inspectionStore.js";
 import logger from "../utils/logger.js";
 
 const inspectionController = {

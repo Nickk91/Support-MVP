@@ -34,6 +34,14 @@ export const authenticateToken = (req, res, next) => {
       // REMOVED: tenantId - user ID provides tenancy
     };
 
+    // ADD DEBUG LOGGING HERE
+    console.log("🔐 AUTH MIDDLEWARE DEBUG:", {
+      path: req.path,
+      method: req.method,
+      decodedToken: decoded,
+      normalizedUser: req.user,
+    });
+
     next();
   });
 };
