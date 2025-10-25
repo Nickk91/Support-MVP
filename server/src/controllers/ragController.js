@@ -1,6 +1,6 @@
 // server/src/controllers/ragController.js
 
-const PYTHON_RAG_URL = process.env.PYTHON_RAG_URL || "http://localhost:8000";
+import pythonService from "../services/pythonService.js";
 
 // Ask question to RAG system
 export const askQuestion = async (req, res) => {
@@ -15,36 +15,29 @@ export const askQuestion = async (req, res) => {
       });
     }
 
-    // Forward to Python RAG with user context
-    const pythonResponse = await fetch(`${PYTHON_RAG_URL}/api/ask`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-ID": req.user.userId,
-        "X-User-Role": req.user.role,
-        "X-Bot-ID": botId || "",
-      },
-      body: JSON.stringify({
-        question,
-        user_id: req.user.userId,
-      }),
-    });
+    // Use centralized Python service
+    const result = await pythonService.askQuestion(
+      question,
+      botId,
+      req.user.userId,
+      req.user.role,
+      req.user.tenantId
+    );
 
-    if (!pythonResponse.ok) {
-      throw new Error(`Python RAG service error: ${pythonResponse.status}`);
-    }
-
-    const result = await pythonResponse.json();
     res.json({
       ok: true,
       ...result,
     });
   } catch (error) {
     console.error("[rag:ask] error:", error);
-    res.status(503).json({
+
+    // Use error information from service
+    const statusCode = error.status >= 400 ? error.status : 503;
+
+    res.status(statusCode).json({
       ok: false,
-      error: "rag_service_unavailable",
-      message: "AI service is currently unavailable",
+      error: "rag_service_error",
+      message: error.message || "AI service is currently unavailable",
     });
   }
 };
@@ -62,36 +55,28 @@ export const adminAskQuestion = async (req, res) => {
       });
     }
 
-    // Forward to Python admin endpoint
-    const pythonResponse = await fetch(`${PYTHON_RAG_URL}/api/admin/ask`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-ID": req.user.userId,
-        "X-User-Role": req.user.role,
-        "X-Bot-ID": botId || "",
-      },
-      body: JSON.stringify({
-        question,
-        user_id: req.user.userId,
-      }),
-    });
+    // Use centralized Python service
+    const result = await pythonService.adminAskQuestion(
+      question,
+      botId,
+      req.user.userId,
+      req.user.role,
+      req.user.tenantId
+    );
 
-    if (!pythonResponse.ok) {
-      throw new Error(`Python RAG service error: ${pythonResponse.status}`);
-    }
-
-    const result = await pythonResponse.json();
     res.json({
       ok: true,
       ...result,
     });
   } catch (error) {
     console.error("[rag:admin-ask] error:", error);
-    res.status(503).json({
+
+    const statusCode = error.status >= 400 ? error.status : 503;
+
+    res.status(statusCode).json({
       ok: false,
-      error: "rag_service_unavailable",
-      message: "AI service is currently unavailable",
+      error: "rag_service_error",
+      message: error.message || "AI service is currently unavailable",
     });
   }
 };
@@ -109,37 +94,49 @@ export const ingestFiles = async (req, res) => {
       });
     }
 
-    // Forward to Python ingest endpoint
-    const pythonResponse = await fetch(`${PYTHON_RAG_URL}/api/ingest`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-ID": req.user.userId,
-        "X-User-Role": req.user.role,
-        "X-Bot-ID": botId,
-      },
-      body: JSON.stringify({
-        bot_id: botId,
-        paths: paths,
-        user_id: req.user.userId,
-      }),
-    });
+    // Use centralized Python service
+    const result = await pythonService.ingestFiles(
+      botId,
+      paths,
+      req.user.userId,
+      req.user.tenantId,
+      req.user.role
+    );
 
-    if (!pythonResponse.ok) {
-      throw new Error(`Python ingest service error: ${pythonResponse.status}`);
-    }
-
-    const result = await pythonResponse.json();
     res.json({
       ok: true,
       ...result,
     });
   } catch (error) {
     console.error("[rag:ingest] error:", error);
+
+    const statusCode = error.status >= 400 ? error.status : 503;
+
+    res.status(statusCode).json({
+      ok: false,
+      error: "ingest_service_error",
+      message:
+        error.message || "File ingestion service is currently unavailable",
+    });
+  }
+};
+
+// Health check endpoint
+export const healthCheck = async (req, res) => {
+  try {
+    const status = await pythonService.healthCheck();
+
+    res.json({
+      ok: true,
+      service: "python_rag",
+      ...status,
+    });
+  } catch (error) {
     res.status(503).json({
       ok: false,
-      error: "ingest_service_unavailable",
-      message: "File ingestion service is currently unavailable",
+      service: "python_rag",
+      status: "unavailable",
+      error: error.message,
     });
   }
 };
