@@ -1,5 +1,4 @@
 // server\src\controllers\botController.js
-
 import { Bot } from "../models/Bot.js";
 import { User } from "../models/User.js";
 import Document from "../models/Document.js";
@@ -8,7 +7,7 @@ import { nanoid } from "nanoid";
 import fs from "fs/promises";
 import path from "path";
 import { deleteFileFromS3 } from "../utils/s3Utils.js";
-import pythonService from "../services/pythonService.js"; // Updated import
+import pythonService from "../services/pythonService.js";
 
 // Create new bot with Python RAG integration
 export const createBot = async (req, res) => {
@@ -432,8 +431,7 @@ export const deleteBot = async (req, res) => {
   }
 };
 
-// File cleanup for specific files
-// In server\src\controllers\botController.js - REPLACE the cleanupUploads function
+// File cleanup for specific files - UPDATED TO DELETE DOCUMENT RECORDS
 export const cleanupUploads = async (req, res) => {
   console.log("🧹 SERVER CLEANUP DEBUG - START =================");
   try {
@@ -519,7 +517,7 @@ export const cleanupUploads = async (req, res) => {
         results: {
           s3Deletions: [],
           chunkDeletions: 0,
-          documentUpdates: 0,
+          documentDeletions: 0, // Changed from documentUpdates
           errors: [],
         },
       });
@@ -528,7 +526,7 @@ export const cleanupUploads = async (req, res) => {
     const cleanupResults = {
       s3Deletions: [],
       chunkDeletions: 0,
-      documentUpdates: 0,
+      documentDeletions: 0, // Changed from documentUpdates
       errors: [],
     };
 
@@ -545,28 +543,37 @@ export const cleanupUploads = async (req, res) => {
           console.log(`✅ Deleted from S3: ${file.s3Key}`);
         }
 
-        // 2. Delete chunks from MongoDB
+        // 2. Delete chunks from MongoDB - FIXED: Use multiple field names
         console.log(`🗑️ Deleting chunks for: ${file.s3Key}`);
         const chunkResult = await Chunk.deleteMany({
           bot_id: botId,
-          document_path: file.s3Key,
+          $or: [
+            { document_path: file.s3Key },
+            { s3_key: file.s3Key },
+            { file_path: file.s3Key },
+            { source: file.s3Key },
+          ],
         });
         cleanupResults.chunkDeletions += chunkResult.deletedCount;
         console.log(`✅ Deleted ${chunkResult.deletedCount} chunks`);
 
-        // 3. Update document status in MongoDB
-        console.log(`🗑️ Updating document status for: ${file.s3Key}`);
-        const docResult = await Document.updateOne(
-          { bot_id: botId, file_path: file.s3Key },
-          {
-            status: "deleted",
-            processed_at: new Date(),
-            error_message: "File deleted by user",
-          }
-        );
-        if (docResult.modifiedCount > 0) {
-          cleanupResults.documentUpdates++;
-          console.log(`✅ Updated document status`);
+        // 🎯 CRITICAL FIX: DELETE document records instead of updating status
+        console.log(`🗑️ Deleting document records for: ${file.s3Key}`);
+        const docResult = await Document.deleteMany({
+          bot_id: botId,
+          $or: [
+            { document_path: file.s3Key },
+            { s3_key: file.s3Key },
+            { file_path: file.s3Key },
+          ],
+        });
+        if (docResult.deletedCount > 0) {
+          cleanupResults.documentDeletions += docResult.deletedCount; // Changed from documentUpdates
+          console.log(`✅ Deleted ${docResult.deletedCount} document records`);
+        } else {
+          console.log(
+            `ℹ️ No document records found to delete for: ${file.s3Key}`
+          );
         }
       } catch (error) {
         cleanupResults.errors.push({
@@ -626,13 +633,11 @@ export const cleanupUploads = async (req, res) => {
   }
 };
 
-// Update bot files (used by upload controller)
-
+// Update bot files - COMPLETELY REPLACED FOR FILE REPLACEMENT
+// COMPLETELY UPDATED updateBotFiles function - FIXED FOR FILE REPLACEMENT
 export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
   try {
-    console.log(
-      "🔄 updateBotFiles - Starting file cleanup and merge operation"
-    );
+    console.log("🔄 updateBotFiles - Starting COMPLETE file replacement");
     console.log("📦 New file records:", newFileRecords);
 
     // First, get the current bot to see existing files
@@ -648,28 +653,122 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
 
     console.log("📁 Current bot files:", currentBot.files);
 
-    // FIX: Remove temporary files (files that start with 'temp_')
-    const nonTempFiles = currentBot.files.filter(
-      (file) => !file.storedAs?.startsWith("temp_")
-    );
+    // 🚨 COMPLETE REPLACEMENT LOGIC: Clean up ALL old S3 files before adding new ones
+    const oldFiles = currentBot.files;
 
-    console.log(
-      "🗑️ Removed temp files, remaining non-temp files:",
-      nonTempFiles
-    );
+    if (oldFiles.length > 0) {
+      console.log("🗑️ Cleaning up ALL old files before replacement");
 
-    // Merge: keep non-temp files and add new files
-    const mergedFiles = [...nonTempFiles, ...newFileRecords];
+      for (const oldFile of oldFiles) {
+        // 🎯 CRITICAL FIX: Clean up BOTH temp files AND actual S3 files
+        if (oldFile.s3Key && !oldFile.s3Key.startsWith("temp_")) {
+          try {
+            console.log(
+              `🧹 Cleaning up OLD S3 FILE: ${oldFile.filename} (${oldFile.s3Key})`
+            );
 
-    console.log(
-      "📋 Final merged files:",
-      mergedFiles.map((f) => ({
-        filename: f.filename,
-        storedAs: f.storedAs,
-        s3Key: f.s3Key,
-      }))
-    );
+            // 1. Delete from S3
+            await deleteFileFromS3(oldFile.s3Key);
+            console.log(`✅ Deleted old S3 file: ${oldFile.s3Key}`);
 
+            // 2. Delete chunks - Use multiple field names for comprehensive cleanup
+            const chunkResult = await Chunk.deleteMany({
+              bot_id: botId,
+              $or: [
+                { document_path: oldFile.s3Key },
+                { s3_key: oldFile.s3Key },
+                { file_path: oldFile.s3Key },
+                { source: oldFile.s3Key },
+              ],
+            });
+            console.log(
+              `✅ Deleted ${chunkResult.deletedCount} old chunks for ${oldFile.s3Key}`
+            );
+
+            // 🎯 CRITICAL FIX: DELETE document records instead of updating status
+            console.log(`🗑️ Deleting document records for: ${oldFile.s3Key}`);
+            const docResult = await Document.deleteMany({
+              bot_id: botId,
+              $or: [
+                { document_path: oldFile.s3Key },
+                { s3_key: oldFile.s3Key },
+                { file_path: oldFile.s3Key },
+              ],
+            });
+            if (docResult.deletedCount > 0) {
+              console.log(
+                `✅ Deleted ${docResult.deletedCount} document records for ${oldFile.s3Key}`
+              );
+            } else {
+              console.log(
+                `ℹ️ No document records found to delete for: ${oldFile.s3Key}`
+              );
+            }
+          } catch (cleanupError) {
+            console.error(
+              `⚠️ Failed to cleanup old file ${oldFile.s3Key}:`,
+              cleanupError
+            );
+            // Continue with other files - don't fail the whole operation
+          }
+        } else if (oldFile.storedAs && oldFile.storedAs.startsWith("temp_")) {
+          console.log(
+            `⏭️ Skipping temp file cleanup (no S3 data): ${oldFile.storedAs}`
+          );
+        } else {
+          console.log(`🔍 File has no S3 key or is not a temp file:`, oldFile);
+        }
+      }
+
+      // 🎯 ADDITIONAL FIX: Also try to cleanup by filename for any remaining chunks
+      console.log("🔍 Performing additional cleanup by filename...");
+      for (const oldFile of oldFiles) {
+        if (
+          oldFile.filename &&
+          oldFile.s3Key &&
+          !oldFile.s3Key.startsWith("temp_")
+        ) {
+          try {
+            // Try to delete chunks by filename as well (in case they were stored differently)
+            const filenameChunkResult = await Chunk.deleteMany({
+              bot_id: botId,
+              $or: [
+                { document_path: { $regex: oldFile.filename, $options: "i" } },
+                { file_path: { $regex: oldFile.filename, $options: "i" } },
+                { source: { $regex: oldFile.filename, $options: "i" } },
+              ],
+            });
+            if (filenameChunkResult.deletedCount > 0) {
+              console.log(
+                `✅ Deleted additional ${filenameChunkResult.deletedCount} chunks by filename: ${oldFile.filename}`
+              );
+            }
+
+            // Also try to delete document records by filename
+            const filenameDocResult = await Document.deleteMany({
+              bot_id: botId,
+              $or: [
+                { document_path: { $regex: oldFile.filename, $options: "i" } },
+                { file_path: { $regex: oldFile.filename, $options: "i" } },
+                { file_name: { $regex: oldFile.filename, $options: "i" } },
+              ],
+            });
+            if (filenameDocResult.deletedCount > 0) {
+              console.log(
+                `✅ Deleted additional ${filenameDocResult.deletedCount} document records by filename: ${oldFile.filename}`
+              );
+            }
+          } catch (filenameError) {
+            console.error(
+              `⚠️ Filename-based cleanup failed for ${oldFile.filename}:`,
+              filenameError
+            );
+          }
+        }
+      }
+    }
+
+    // 🎯 COMPLETELY REPLACE the files array with new files (no merging)
     const updatedBot = await Bot.findOneAndUpdate(
       {
         _id: botId,
@@ -677,14 +776,23 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
       },
       {
         $set: {
-          files: mergedFiles,
+          files: newFileRecords, // Complete replacement, no merging
           updatedAt: new Date(),
         },
       },
       { new: true }
     );
 
-    console.log("✅ Bot files updated successfully - temp files cleaned up");
+    console.log("✅ Bot files COMPLETELY REPLACED");
+    console.log(
+      "📋 New files:",
+      newFileRecords.map((f) => ({
+        filename: f.filename,
+        s3Key: f.s3Key,
+        storedAs: f.storedAs,
+      }))
+    );
+
     return updatedBot;
   } catch (error) {
     console.error("❌ Error updating bot files:", error);
