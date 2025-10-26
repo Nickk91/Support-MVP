@@ -184,7 +184,11 @@ export default function BotEditDialog({
 
         {/* Current Step Content */}
         <div className="min-h-[300px] relative">
-          <CurrentStepComponent bot={formData} onChange={updateFormData} />
+          <CurrentStepComponent
+            bot={formData}
+            onChange={updateFormData}
+            isEditing={!isNew}
+          />
 
           {/* FILE UPLOAD LOADING OVERLAY */}
           {fileUploadLoading && (
