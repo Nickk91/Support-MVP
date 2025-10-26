@@ -433,6 +433,7 @@ export const deleteBot = async (req, res) => {
 };
 
 // File cleanup for specific files
+// In server\src\controllers\botController.js - REPLACE the cleanupUploads function
 export const cleanupUploads = async (req, res) => {
   console.log("🧹 SERVER CLEANUP DEBUG - START =================");
   try {
@@ -460,35 +461,55 @@ export const cleanupUploads = async (req, res) => {
     }
 
     console.log("🤖 Bot found:", bot.botName);
-    console.log("📁 Bot files array:", JSON.stringify(bot.files, null, 2));
-
-    // DEBUG: Log each file in bot with all properties
-    bot.files.forEach((file, index) => {
-      console.log(`📄 Bot file ${index}:`, {
-        filename: file.filename,
-        storedAs: file.storedAs,
-        s3Key: file.s3Key,
-        allProps: Object.keys(file),
-      });
-    });
+    console.log(
+      "📁 Current bot files:",
+      bot.files.map((f) => ({
+        filename: f.filename,
+        storedAs: f.storedAs,
+        s3Key: f.s3Key,
+      }))
+    );
 
     console.log("🎯 Looking for files matching:", fileIds);
 
-    // FIX: Try multiple matching strategies
-    const filesToDelete = bot.files.filter((file) => {
-      const matches = fileIds.some((id) => {
-        const match =
-          id === file.s3Key || id === file.storedAs || id === file.filename;
-        if (match) {
-          console.log(`✅ MATCH FOUND: ${file.filename} matches ${id}`);
+    // FIX: Use more flexible matching to find files to delete
+    const filesToDelete = [];
+    const remainingFiles = [];
+
+    bot.files.forEach((file) => {
+      // Check if this file should be deleted by matching against any identifier
+      const shouldDelete = fileIds.some((fileId) => {
+        // Try multiple matching strategies
+        const matches =
+          file.s3Key === fileId ||
+          file.storedAs === fileId ||
+          file.filename === fileId ||
+          (file._id && file._id.toString() === fileId);
+
+        if (matches) {
+          console.log(
+            `✅ MATCH FOUND: ${file.filename} (s3Key: ${file.s3Key}) matches ${fileId}`
+          );
         }
-        return match;
+        return matches;
       });
-      return matches;
+
+      if (shouldDelete) {
+        filesToDelete.push(file);
+      } else {
+        remainingFiles.push(file);
+      }
     });
 
     console.log("🗑️ Files to delete found:", filesToDelete.length);
-    console.log("📋 Files to delete details:", filesToDelete);
+    console.log(
+      "📋 Files to delete details:",
+      filesToDelete.map((f) => ({
+        filename: f.filename,
+        s3Key: f.s3Key,
+        storedAs: f.storedAs,
+      }))
+    );
 
     if (filesToDelete.length === 0) {
       console.log("❌ No matching files found in bot");
@@ -511,7 +532,7 @@ export const cleanupUploads = async (req, res) => {
       errors: [],
     };
 
-    // ✅ ACTUALLY DELETE EACH FILE - THIS PART WAS MISSING!
+    // ✅ DELETE EACH FILE PROPERLY
     for (const file of filesToDelete) {
       try {
         console.log(`🧹 Cleaning up file: ${file.filename} (${file.s3Key})`);
@@ -547,14 +568,6 @@ export const cleanupUploads = async (req, res) => {
           cleanupResults.documentUpdates++;
           console.log(`✅ Updated document status`);
         }
-
-        // 4. Remove file from bot's files array
-        console.log(`🗑️ Removing file from bot: ${file.s3Key}`);
-        await Bot.updateOne(
-          { _id: botId },
-          { $pull: { files: { s3Key: file.s3Key } } }
-        );
-        console.log(`✅ Removed file from bot`);
       } catch (error) {
         cleanupResults.errors.push({
           file: file.filename,
@@ -564,19 +577,29 @@ export const cleanupUploads = async (req, res) => {
       }
     }
 
+    // 4. Update bot to remove the deleted files (THIS WAS MISSING!)
+    if (filesToDelete.length > 0) {
+      console.log(`🗑️ Removing ${filesToDelete.length} files from bot`);
+      bot.files = remainingFiles;
+      await bot.save();
+      console.log(
+        `✅ Updated bot with ${remainingFiles.length} remaining files`
+      );
+    }
+
     // 5. Call Python service to cleanup vector store
     try {
-      console.log(
-        `🧹 Cleaning up vector store for files:`,
-        filesToDelete.map((f) => f.s3Key)
-      );
-      await pythonService.cleanupFiles(
-        botId,
-        filesToDelete.map((f) => f.s3Key),
-        userId,
-        req.user.tenantId
-      );
-      console.log(`✅ Cleaned up vector store`);
+      const s3KeysToCleanup = filesToDelete.map((f) => f.s3Key).filter(Boolean);
+      if (s3KeysToCleanup.length > 0) {
+        console.log(`🧹 Cleaning up vector store for files:`, s3KeysToCleanup);
+        await pythonService.cleanupFiles(
+          botId,
+          s3KeysToCleanup,
+          userId,
+          req.user.tenantId
+        );
+        console.log(`✅ Cleaned up vector store`);
+      }
     } catch (error) {
       console.error("❌ Failed to cleanup vector store files:", error);
       cleanupResults.errors.push({
@@ -604,25 +627,67 @@ export const cleanupUploads = async (req, res) => {
 };
 
 // Update bot files (used by upload controller)
-export const updateBotFiles = async (botId, ownerId, fileRecords) => {
+
+export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
   try {
-    const bot = await Bot.findOneAndUpdate(
+    console.log(
+      "🔄 updateBotFiles - Starting file cleanup and merge operation"
+    );
+    console.log("📦 New file records:", newFileRecords);
+
+    // First, get the current bot to see existing files
+    const currentBot = await Bot.findOne({
+      _id: botId,
+      ownerId: ownerId,
+    });
+
+    if (!currentBot) {
+      console.error(`❌ Bot ${botId} not found for user ${ownerId}`);
+      throw new Error("Bot not found");
+    }
+
+    console.log("📁 Current bot files:", currentBot.files);
+
+    // FIX: Remove temporary files (files that start with 'temp_')
+    const nonTempFiles = currentBot.files.filter(
+      (file) => !file.storedAs?.startsWith("temp_")
+    );
+
+    console.log(
+      "🗑️ Removed temp files, remaining non-temp files:",
+      nonTempFiles
+    );
+
+    // Merge: keep non-temp files and add new files
+    const mergedFiles = [...nonTempFiles, ...newFileRecords];
+
+    console.log(
+      "📋 Final merged files:",
+      mergedFiles.map((f) => ({
+        filename: f.filename,
+        storedAs: f.storedAs,
+        s3Key: f.s3Key,
+      }))
+    );
+
+    const updatedBot = await Bot.findOneAndUpdate(
       {
         _id: botId,
         ownerId: ownerId,
       },
       {
         $set: {
-          files: fileRecords,
+          files: mergedFiles,
           updatedAt: new Date(),
         },
       },
       { new: true }
     );
 
-    return bot;
+    console.log("✅ Bot files updated successfully - temp files cleaned up");
+    return updatedBot;
   } catch (error) {
-    console.error("Error updating bot files:", error);
+    console.error("❌ Error updating bot files:", error);
     throw error;
   }
 };

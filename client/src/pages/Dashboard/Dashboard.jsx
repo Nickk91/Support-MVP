@@ -66,6 +66,10 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, token]);
 
+  useEffect(() => {
+    console.log("🔍 Bots state updated:", bots);
+  }, [bots]);
+
   const fetchUserBots = async (showRefresh = false) => {
     try {
       if (showRefresh) {
@@ -76,10 +80,29 @@ export default function Dashboard() {
       }
       setError(null);
 
+      console.log("🔍 Fetching bots from API...");
       const response = await api.get("/bots");
+      console.log("🔍 Full API Response:", response);
+      console.log("🔍 API Response data:", response.data);
+      console.log("🔍 API Response bots:", response.data.bots);
+      console.log("🔍 Is bots array?", Array.isArray(response.data.bots));
 
       if (response.data.ok) {
-        setBots(response.data.bots || []);
+        const botsArray = Array.isArray(response.data.bots)
+          ? response.data.bots
+          : [];
+        console.log("🔍 Setting bots array:", botsArray);
+
+        // DEBUG: Check each bot's files
+        botsArray.forEach((bot, index) => {
+          console.log(`🔍 Bot ${index} (${bot.botName}):`, {
+            id: bot._id,
+            filesCount: bot.files?.length,
+            files: bot.files,
+          });
+        });
+
+        setBots(botsArray);
         if (showRefresh) {
           toast.success("Bots refreshed successfully", { id: "refresh" });
         }
@@ -133,19 +156,51 @@ export default function Dashboard() {
     }
   };
 
+  // In Dashboard.jsx - UPDATE the cleanupBotFiles function
   const cleanupBotFiles = async (botId, filesToRemove) => {
+    console.log("🧹 Cleaning up old files:", filesToRemove);
+
+    // DEBUG: Log what properties each file has
+    filesToRemove.forEach((file, index) => {
+      console.log(`📁 File ${index}:`, {
+        filename: file.filename,
+        storedAs: file.storedAs,
+        s3Key: file.s3Key,
+        id: file.id,
+        _id: file._id,
+        allProps: Object.keys(file),
+      });
+    });
+
+    // FIX: Use the correct identifier - prioritize s3Key, then storedAs, then filename
     const fileIds = filesToRemove
-      .map((f) => f.s3Key || f.storedAs || f.filename)
+      .map((f) => {
+        // Try to get the actual identifier used by the backend
+        if (f.s3Key) return f.s3Key;
+        if (f.storedAs) return f.storedAs;
+        return f.filename;
+      })
       .filter(Boolean);
 
-    if (fileIds.length === 0) return;
+    console.log("🔍 Extracted file IDs for cleanup:", fileIds);
+
+    if (fileIds.length === 0) {
+      console.log("❌ No valid file IDs found for cleanup");
+      return;
+    }
 
     try {
-      await api.delete("/bots/cleanup/uploads", {
-        data: { botId, fileIds },
+      const response = await api.delete("/bots/cleanup/uploads", {
+        data: {
+          botId,
+          fileIds,
+        },
       });
+
+      console.log("✅ Cleanup completed:", response.data);
+      return response;
     } catch (error) {
-      console.error("Cleanup failed:", error);
+      console.error("❌ Cleanup failed:", error);
       throw error;
     }
   };
@@ -179,11 +234,14 @@ export default function Dashboard() {
       const endpoint = selectedBot ? `/bots/${botId}` : "/bots";
       const method = selectedBot ? "put" : "post";
 
+      console.log("💾 Saving bot to:", endpoint);
+      console.log("🔍 DEBUG: Files in savedBot:", savedBot.files);
+
       toast.loading(selectedBot ? "Updating bot..." : "Creating bot...", {
         id: "bot-save",
       });
 
-      // Prepare files for API
+      // STEP 1: Prepare files for API (remove temporary properties)
       const filesForApi =
         savedBot.files
           ?.filter((f) => !f.markedForRemoval)
@@ -191,56 +249,82 @@ export default function Dashboard() {
             ({ fileObject, isNew, markedForRemoval, ...cleanFile }) => cleanFile
           ) || [];
 
+      console.log("📦 Final files for API:", filesForApi);
+
+      // STEP 2: Create the bot data object
       const botDataForApi = { ...savedBot, files: filesForApi };
-      const response = await api[method](endpoint, botDataForApi);
-      const createdBot = response.data.bot || response.data;
-      const createdBotId = createdBot._id || createdBot.id;
 
-      toast.success(
-        selectedBot ? "Bot updated successfully!" : "Bot created successfully!",
-        { id: "bot-save" }
-      );
+      console.log("🔍 DEBUG: Bot data for API:", botDataForApi);
 
-      // Handle file operations
+      // STEP 3: Handle file cleanup BEFORE saving bot (CRITICAL FIX)
       if (selectedBot && savedBot.files) {
         const filesMarkedForRemoval = savedBot.files.filter(
           (f) => f.markedForRemoval
         );
         const hasNewFiles = savedBot.files.some((f) => f.isNew);
 
+        // Only cleanup if we're actually replacing files
         if (
           (filesMarkedForRemoval.length > 0 || hasNewFiles) &&
           selectedBot.files?.length > 0
         ) {
-          try {
-            await cleanupBotFiles(createdBotId, selectedBot.files);
-          } catch (cleanupError) {
-            console.error("File cleanup failed:", cleanupError);
+          console.log("🔄 File replacement detected, cleaning up old files...");
+
+          // Get files to remove - use the ORIGINAL bot's files that are being replaced
+          const filesToRemove = [...selectedBot.files];
+
+          console.log("🗑️ Files to cleanup:", filesToRemove);
+
+          if (filesToRemove.length > 0) {
+            try {
+              // IMPORTANT: Cleanup BEFORE updating bot
+              await cleanupBotFiles(botId, filesToRemove);
+              console.log("✅ Old files cleaned up successfully");
+            } catch (cleanupError) {
+              console.error("⚠️ File cleanup failed:", cleanupError);
+              // Continue even if cleanup fails - we still want to save the bot
+            }
           }
         }
       }
 
-      // Upload new files
+      // STEP 4: Save bot data AFTER cleanup
+      const response = await api[method](endpoint, botDataForApi);
+      const createdBot = response.data.bot || response.data;
+      const createdBotId = createdBot._id || createdBot.id;
+
+      console.log("🔍 DEBUG: Bot saved with ID:", createdBotId);
+
+      toast.success(
+        selectedBot ? "Bot updated successfully!" : "Bot created successfully!",
+        { id: "bot-save" }
+      );
+
+      // STEP 5: Upload new files if any
       const newFiles =
         savedBot.files?.filter((f) => f.isNew && f.fileObject) || [];
       if (newFiles.length > 0) {
+        console.log("📁 Processing new files for bot:", createdBotId);
         setFileUploadLoading(true);
+
         try {
           toast.loading("Uploading and processing new files...", {
             id: "file-upload",
           });
 
           const uploadResponse = await uploadBotFiles(createdBotId, newFiles);
-          const processedCount = uploadResponse.data.totalProcessed || 0;
+          console.log(
+            "✅ New files uploaded successfully:",
+            uploadResponse.data
+          );
 
+          const processedCount = uploadResponse.data.totalProcessed || 0;
           toast.success(
             `Files uploaded successfully! Processed ${processedCount} files.`,
             { id: "file-upload" }
           );
-
-          await fetchUserBots();
         } catch (uploadError) {
-          console.error("File upload failed:", uploadError);
+          console.error("❌ File upload failed:", uploadError);
           toast.error("File upload failed", { id: "file-upload" });
           toast.warning("Bot updated but some files failed to upload");
         } finally {
@@ -248,25 +332,15 @@ export default function Dashboard() {
         }
       }
 
-      // Update local state via store
-      if (selectedBot) {
-        setBots((prev) =>
-          prev.map((b) => ((b._id || b.id) === createdBotId ? createdBot : b))
-        );
-      } else {
-        setBots((prev) => {
-          const exists = prev.some(
-            (bot) => (bot._id || bot.id) === createdBotId
-          );
-          return exists
-            ? prev.map((bot) =>
-                (bot._id || bot.id) === createdBotId ? createdBot : bot
-              )
-            : [...prev, createdBot];
-        });
-      }
+      // STEP 6: Refresh the dashboard data (CRITICAL FOR NEW BOTS)
+      console.log("🔄 Refreshing dashboard data...");
+      await fetchUserBots(); // This will reload all bots from the server
 
-      closeEditDialog();
+      // STEP 7: Close the dialog
+      setEditDialogOpen(false);
+      setSelectedBot(null);
+
+      console.log("✅ Bot creation/update completed successfully");
     } catch (error) {
       console.error("Failed to save bot:", error);
       const errorMessage = error.message || "Failed to save bot";
@@ -291,6 +365,12 @@ export default function Dashboard() {
       />
     );
 
+  console.log("🔍 Dashboard Debug - Final bots state:", bots);
+  console.log("🔍 Dashboard Debug - bots type:", typeof bots);
+  console.log("🔍 Dashboard Debug - isArray:", Array.isArray(bots));
+  console.log("🔍 Dashboard Debug - bots.length:", bots?.length);
+  console.log("🔍 Dashboard Debug - bots > 0 check:", bots?.length > 0);
+
   return (
     <div className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
@@ -302,11 +382,11 @@ export default function Dashboard() {
           saveLoading={saveLoading}
         />
 
-        <StatsOverview bots={bots} />
+        <StatsOverview bots={Array.isArray(bots) ? bots : []} />
 
-        {bots.length > 0 ? (
+        {Array.isArray(bots) && bots.length > 0 ? (
           <BotGrid
-            bots={bots}
+            bots={bots} // Make sure this is being passed
             onEdit={handleEditBot}
             onDelete={handleDeleteClick}
             onInspect={handleInspectBot}

@@ -13,6 +13,8 @@ export default function BotCard({ bot, onEdit, onDelete, onInspect }) {
     e.stopPropagation(); // Prevent triggering edit
     onInspect(bot);
   };
+  console.log("bot.files:", bot.files);
+  console.log("bot.files.length:", bot.files.length);
 
   return (
     <Card className="hover:shadow-lg transition-shadow duration-200">
