@@ -27,11 +27,14 @@ async def ingest(
         effective_user_id = x_user_id or body.user_id
         effective_bot_id = x_bot_id or body.bot_id
         
+        # 🎯 Log what we're receiving
+        print(f"🎯 Ingest request - Bot: {effective_bot_id}, Paths: {body.paths}")
+        
         count = ingest_files(
             bot_id=effective_bot_id, 
             paths=body.paths, 
             user_id=effective_user_id,
-            tenant_id=x_tenant_id  # Pass tenant_id to core function
+            tenant_id=x_tenant_id
         )
         return {"ok": True, "chunks_added": count}
     except Exception as e:

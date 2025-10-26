@@ -2,6 +2,7 @@
 
 from typing import List, Optional, Dict, Any
 import logging
+import os
 from langchain.schema import Document, HumanMessage, SystemMessage
 
 from app.rag.vectorstore import get_vectorstore
@@ -23,6 +24,15 @@ def is_s3_url(path: str) -> bool:
     ]
     return any(indicator in path for indicator in s3_indicators)
 
+def extract_s3_key_from_url(s3_url: str) -> str:
+    """Extract the S3 key from an S3 URL"""
+    if s3_url.startswith('https://'):
+        # Format: https://bucket-name.s3.region.amazonaws.com/key
+        parts = s3_url.replace('https://', '').split('/')
+        if len(parts) > 1:
+            return '/'.join(parts[1:])  # Return everything after bucket name
+    return s3_url  # Fallback to original
+
 def ingest_files(
     bot_id: str,
     paths: List[str],
@@ -39,6 +49,14 @@ def ingest_files(
     # REMOVE the S3 filtering - let load_paths handle both local and S3
     # Initialize inspection store
     inspection_store = InspectionStore()
+    
+    # 🎯 CRITICAL: Track original S3 URLs to S3 key mapping
+    s3_url_to_key = {}
+    for path in paths:
+        if path.startswith('https://') and 'amazonaws.com' in path:
+            s3_key = extract_s3_key_from_url(path)
+            s3_url_to_key[path] = s3_key
+            logger.info(f"🔍 DEBUG Mapped S3 URL to key: {path} -> {s3_key}")
     
     # Load documents - this will handle both local paths and S3 URLs
     docs = load_paths(paths)
@@ -64,7 +82,26 @@ def ingest_files(
         md = ch.metadata or {}
         md.setdefault("bot_id", bot_id)
         md.setdefault("user_scope", scope)
-        md.setdefault("source", md.get("source", "uploaded"))
+        
+        # 🎯 CRITICAL FIX: Update source to use S3 key if available
+        current_source = md.get("source", "uploaded")
+        if current_source in s3_url_to_key:
+            # If source is an S3 URL, replace it with the S3 key
+            md["source"] = s3_url_to_key[current_source]
+            md["s3_key"] = s3_url_to_key[current_source]
+            logger.info(f"🔍 DEBUG Updated source from {current_source} to {s3_url_to_key[current_source]}")
+        elif any(s3_url in current_source for s3_url in s3_url_to_key.keys()):
+            # If source contains an S3 URL (like a temp path derived from S3), use the S3 key
+            for s3_url, s3_key in s3_url_to_key.items():
+                if s3_url in current_source:
+                    md["source"] = s3_key
+                    md["s3_key"] = s3_key
+                    logger.info(f"🔍 DEBUG Replaced S3 URL in source: {current_source} -> {s3_key}")
+                    break
+        else:
+            # For local files, use filename as source
+            md.setdefault("source", os.path.basename(current_source) if current_source != "uploaded" else "uploaded")
+        
         if tenant_id:
             md.setdefault("tenant_id", tenant_id)
         ch.metadata = md
@@ -94,13 +131,13 @@ def ingest_files(
                 "char_count": len(chunk.page_content),
                 "chunk_index": i,
                 "page_number": chunk.metadata.get("page", None),
-                "source": source_path
+                "source": source_path  # This will now be the S3 key!
             })
         
         # Save to inspection store
         inspection_store.save_inspection_data(
             bot_id=bot_id,
-            document_path=source_path,  # Use the actual source path from metadata
+            document_path=source_path,  # 🚨 This will now be the S3 key instead of local path
             chunks_data=chunks_data,
             user_id=user_id,
             tenant_id=tenant_id
@@ -111,6 +148,9 @@ def ingest_files(
     vs.add_documents(chunks)
     
     return len(chunks)
+
+# ... REST OF THE FILE REMAINS EXACTLY THE SAME ...
+# KEEP ALL THE EXISTING answer_query, _answer_with_llm_only, _is_context_insufficient functions
 
 # UPDATE answer_query function to accept tenant_id
 async def answer_query(

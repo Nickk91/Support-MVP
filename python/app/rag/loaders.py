@@ -49,13 +49,34 @@ def _download_from_s3(s3_url: str) -> str:
         log.error(f"❌ Failed to download from S3 {s3_url}: {e}")
         raise
 
+def extract_s3_key_from_url(s3_url: str) -> str:
+    """Extract the S3 key from an S3 URL"""
+    if s3_url.startswith('https://'):
+        # Format: https://bucket-name.s3.region.amazonaws.com/key
+        parts = s3_url.replace('https://', '').split('/')
+        if len(parts) > 1:
+            return '/'.join(parts[1:])  # Return everything after bucket name
+    return s3_url  # Fallback to original
+
 def _load_one(path: str) -> List[Document]:
+    original_path = path  # Keep original S3 URL
+    
     # Check if it's an S3 URL
     if path.startswith('https://') and 'amazonaws.com' in path:
         log.info(f"🔍 Loading from S3: {path}")
         local_path = _download_from_s3(path)
         try:
-            return _load_local_file(local_path)
+            docs = _load_local_file(local_path)
+            
+            # 🎯 Extract S3 key and add to metadata
+            s3_key = extract_s3_key_from_url(path)
+            for doc in docs:
+                doc.metadata['original_source'] = original_path  # Keep original S3 URL
+                doc.metadata['s3_key'] = s3_key  # Store S3 key
+                # Keep source as original for now - core.py will handle the replacement
+                doc.metadata['source'] = original_path
+            
+            return docs
         finally:
             # Clean up temporary file
             try:
@@ -66,7 +87,13 @@ def _load_one(path: str) -> List[Document]:
                 log.warning(f"⚠️ Could not clean up temp file {local_path}: {e}")
     else:
         # Local file path
-        return _load_local_file(path)
+        docs = _load_local_file(path)
+        # For local files, use filename as source
+        filename = os.path.basename(path)
+        for doc in docs:
+            doc.metadata['source'] = filename
+            doc.metadata['original_source'] = path
+        return docs
 
 def _load_local_file(file_path: str) -> List[Document]:
     """Load a local file using existing loader logic"""

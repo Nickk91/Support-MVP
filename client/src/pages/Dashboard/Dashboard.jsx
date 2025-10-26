@@ -158,50 +158,196 @@ export default function Dashboard() {
 
   // In Dashboard.jsx - UPDATE the cleanupBotFiles function
   const cleanupBotFiles = async (botId, filesToRemove) => {
-    console.log("🧹 Cleaning up old files:", filesToRemove);
+    console.log("🧹 CLEANUP DEBUG - Starting file cleanup process");
+    console.log("📦 Input parameters:", {
+      botId,
+      filesToRemoveCount: filesToRemove?.length || 0,
+      filesToRemove,
+    });
 
-    // DEBUG: Log what properties each file has
+    if (!botId || !filesToRemove || !Array.isArray(filesToRemove)) {
+      console.error("❌ Invalid parameters for cleanup:", {
+        botId,
+        filesToRemove,
+      });
+      throw new Error("Bot ID and files array are required for cleanup");
+    }
+
+    if (filesToRemove.length === 0) {
+      console.log("ℹ️ No files to cleanup - skipping");
+      return { ok: true, message: "No files to cleanup" };
+    }
+
+    // COMPREHENSIVE DEBUG: Log detailed file information
+    console.log("🔍 DETAILED FILE ANALYSIS:");
     filesToRemove.forEach((file, index) => {
-      console.log(`📁 File ${index}:`, {
+      console.log(`📁 File ${index + 1}/${filesToRemove.length}:`, {
         filename: file.filename,
         storedAs: file.storedAs,
         s3Key: file.s3Key,
         id: file.id,
         _id: file._id,
-        allProps: Object.keys(file),
+        size: file.size,
+        mimetype: file.mimetype,
+        uploadedBy: file.uploadedBy,
+        uploadedAt: file.uploadedAt,
+        s3Url: file.s3Url,
+        // Log all available properties for debugging
+        allProperties: Object.keys(file),
+        rawObject: file,
       });
     });
 
-    // FIX: Use the correct identifier - prioritize s3Key, then storedAs, then filename
-    const fileIds = filesToRemove
-      .map((f) => {
-        // Try to get the actual identifier used by the backend
-        if (f.s3Key) return f.s3Key;
-        if (f.storedAs) return f.storedAs;
-        return f.filename;
-      })
-      .filter(Boolean);
+    // ENHANCED IDENTIFIER EXTRACTION: Try multiple strategies
+    const fileIdentifiers = {
+      s3Keys: [],
+      storedAsValues: [],
+      filenames: [],
+      allIdentifiers: [],
+    };
 
-    console.log("🔍 Extracted file IDs for cleanup:", fileIds);
+    filesToRemove.forEach((file) => {
+      // Strategy 1: Use s3Key (most reliable for backend matching)
+      if (file.s3Key && typeof file.s3Key === "string") {
+        fileIdentifiers.s3Keys.push(file.s3Key);
+        fileIdentifiers.allIdentifiers.push(file.s3Key);
+        console.log(`✅ Using s3Key: ${file.s3Key}`);
+      }
 
-    if (fileIds.length === 0) {
-      console.log("❌ No valid file IDs found for cleanup");
-      return;
+      // Strategy 2: Use storedAs (backup identifier)
+      if (file.storedAs && typeof file.storedAs === "string") {
+        fileIdentifiers.storedAsValues.push(file.storedAs);
+        fileIdentifiers.allIdentifiers.push(file.storedAs);
+        console.log(`✅ Using storedAs: ${file.storedAs}`);
+      }
+
+      // Strategy 3: Use filename (least reliable but better than nothing)
+      if (file.filename && typeof file.filename === "string") {
+        fileIdentifiers.filenames.push(file.filename);
+        fileIdentifiers.allIdentifiers.push(file.filename);
+        console.log(`✅ Using filename: ${file.filename}`);
+      }
+
+      // Strategy 4: If we have MongoDB _id, include it
+      if (file._id) {
+        const idStr = file._id.toString
+          ? file._id.toString()
+          : String(file._id);
+        fileIdentifiers.allIdentifiers.push(idStr);
+        console.log(`✅ Using _id: ${idStr}`);
+      }
+    });
+
+    // Remove duplicates and filter out empty values
+    const uniqueFileIds = [...new Set(fileIdentifiers.allIdentifiers)].filter(
+      Boolean
+    );
+
+    console.log("🎯 FINAL IDENTIFIER ANALYSIS:", {
+      totalFiles: filesToRemove.length,
+      s3KeysFound: fileIdentifiers.s3Keys.length,
+      storedAsFound: fileIdentifiers.storedAsValues.length,
+      filenamesFound: fileIdentifiers.filenames.length,
+      uniqueIdentifiers: uniqueFileIds.length,
+      allIdentifiers: uniqueFileIds,
+    });
+
+    if (uniqueFileIds.length === 0) {
+      console.error("❌ CRITICAL: No valid file identifiers found for cleanup");
+      console.error("📋 File objects received:", filesToRemove);
+      throw new Error(
+        "No valid file identifiers could be extracted for cleanup"
+      );
     }
 
+    // STRATEGY SELECTION: Prefer s3Keys, fall back to other identifiers
+    const primaryIdentifiers =
+      fileIdentifiers.s3Keys.length > 0
+        ? fileIdentifiers.s3Keys
+        : uniqueFileIds;
+
+    console.log(
+      "🚀 Using primary identifiers for cleanup:",
+      primaryIdentifiers
+    );
+
     try {
+      console.log("📡 Sending cleanup request to backend...");
+
       const response = await api.delete("/bots/cleanup/uploads", {
         data: {
           botId,
-          fileIds,
+          fileIds: primaryIdentifiers,
+          // Include additional context for backend debugging
+          cleanupContext: {
+            timestamp: new Date().toISOString(),
+            totalFiles: filesToRemove.length,
+            identifierTypes: {
+              s3Keys: fileIdentifiers.s3Keys.length,
+              storedAs: fileIdentifiers.storedAsValues.length,
+              filenames: fileIdentifiers.filenames.length,
+            },
+          },
         },
+        timeout: 30000, // 30 second timeout for cleanup operations
       });
 
-      console.log("✅ Cleanup completed:", response.data);
-      return response;
+      console.log("✅ BACKEND CLEANUP RESPONSE:", {
+        status: response.status,
+        data: response.data,
+        message: response.data?.message,
+        results: response.data?.results,
+      });
+
+      // VALIDATE RESPONSE
+      if (!response.data?.ok) {
+        console.warn("⚠️ Backend reported cleanup issues:", response.data);
+      }
+
+      // LOG CLEANUP SUMMARY
+      const results = response.data?.results;
+      if (results) {
+        console.log("📊 CLEANUP SUMMARY:", {
+          s3FilesDeleted: results.s3Deletions?.length || 0,
+          chunksDeleted: results.chunkDeletions || 0,
+          documentsUpdated: results.documentUpdates || 0,
+          errors: results.errors?.length || 0,
+          totalOperations:
+            (results.s3Deletions?.length || 0) +
+            (results.chunkDeletions || 0) +
+            (results.documentUpdates || 0),
+        });
+
+        if (results.errors && results.errors.length > 0) {
+          console.warn("🚨 CLEANUP ERRORS:", results.errors);
+        }
+      }
+
+      return response.data;
     } catch (error) {
-      console.error("❌ Cleanup failed:", error);
-      throw error;
+      console.error("❌ CLEANUP REQUEST FAILED:", {
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        botId,
+        fileIds: primaryIdentifiers,
+      });
+
+      // ENHANCED ERROR HANDLING
+      const enhancedError = new Error(
+        error.response?.data?.error ||
+          error.response?.data?.message ||
+          `File cleanup failed: ${error.message}`
+      );
+
+      enhancedError.details = {
+        botId,
+        fileIds: primaryIdentifiers,
+        backendError: error.response?.data,
+        statusCode: error.response?.status,
+      };
+
+      throw enhancedError;
     }
   };
 
