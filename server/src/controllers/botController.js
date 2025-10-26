@@ -434,11 +434,15 @@ export const deleteBot = async (req, res) => {
 
 // File cleanup for specific files
 export const cleanupUploads = async (req, res) => {
+  console.log("🧹 SERVER CLEANUP DEBUG - START =================");
   try {
     const { botId, fileIds } = req.body;
-    const userId = req.user.id;
+    const userId = req.user.userId;
+
+    console.log("📦 Request data:", { botId, fileIds, userId });
 
     if (!botId || !fileIds || !Array.isArray(fileIds)) {
+      console.log("❌ Missing required fields");
       return res.status(400).json({
         ok: false,
         error: "botId and fileIds array are required",
@@ -448,16 +452,57 @@ export const cleanupUploads = async (req, res) => {
     // Verify user owns the bot
     const bot = await Bot.findOne({ _id: botId, ownerId: userId });
     if (!bot) {
+      console.log("❌ Bot not found:", { botId, userId });
       return res.status(404).json({
         ok: false,
         error: "Bot not found",
       });
     }
 
-    const filesToDelete = bot.files.filter(
-      (file) =>
-        fileIds.includes(file.storedAs) || fileIds.includes(file.filename)
-    );
+    console.log("🤖 Bot found:", bot.botName);
+    console.log("📁 Bot files array:", JSON.stringify(bot.files, null, 2));
+
+    // DEBUG: Log each file in bot with all properties
+    bot.files.forEach((file, index) => {
+      console.log(`📄 Bot file ${index}:`, {
+        filename: file.filename,
+        storedAs: file.storedAs,
+        s3Key: file.s3Key,
+        allProps: Object.keys(file),
+      });
+    });
+
+    console.log("🎯 Looking for files matching:", fileIds);
+
+    // FIX: Try multiple matching strategies
+    const filesToDelete = bot.files.filter((file) => {
+      const matches = fileIds.some((id) => {
+        const match =
+          id === file.s3Key || id === file.storedAs || id === file.filename;
+        if (match) {
+          console.log(`✅ MATCH FOUND: ${file.filename} matches ${id}`);
+        }
+        return match;
+      });
+      return matches;
+    });
+
+    console.log("🗑️ Files to delete found:", filesToDelete.length);
+    console.log("📋 Files to delete details:", filesToDelete);
+
+    if (filesToDelete.length === 0) {
+      console.log("❌ No matching files found in bot");
+      return res.json({
+        ok: true,
+        message: "No matching files found to cleanup",
+        results: {
+          s3Deletions: [],
+          chunkDeletions: 0,
+          documentUpdates: 0,
+          errors: [],
+        },
+      });
+    }
 
     const cleanupResults = {
       s3Deletions: [],
@@ -466,25 +511,32 @@ export const cleanupUploads = async (req, res) => {
       errors: [],
     };
 
-    // Delete each file and its associated data
+    // ✅ ACTUALLY DELETE EACH FILE - THIS PART WAS MISSING!
     for (const file of filesToDelete) {
       try {
+        console.log(`🧹 Cleaning up file: ${file.filename} (${file.s3Key})`);
+
         // 1. Delete from S3
         if (file.s3Key) {
+          console.log(`🗑️ Deleting from S3: ${file.s3Key}`);
           await deleteFileFromS3(file.s3Key);
           cleanupResults.s3Deletions.push(file.s3Key);
+          console.log(`✅ Deleted from S3: ${file.s3Key}`);
         }
 
         // 2. Delete chunks from MongoDB
+        console.log(`🗑️ Deleting chunks for: ${file.s3Key}`);
         const chunkResult = await Chunk.deleteMany({
           bot_id: botId,
-          document_path: file.storedAs,
+          document_path: file.s3Key,
         });
         cleanupResults.chunkDeletions += chunkResult.deletedCount;
+        console.log(`✅ Deleted ${chunkResult.deletedCount} chunks`);
 
         // 3. Update document status in MongoDB
+        console.log(`🗑️ Updating document status for: ${file.s3Key}`);
         const docResult = await Document.updateOne(
-          { bot_id: botId, file_path: file.storedAs },
+          { bot_id: botId, file_path: file.s3Key },
           {
             status: "deleted",
             processed_at: new Date(),
@@ -493,37 +545,48 @@ export const cleanupUploads = async (req, res) => {
         );
         if (docResult.modifiedCount > 0) {
           cleanupResults.documentUpdates++;
+          console.log(`✅ Updated document status`);
         }
 
         // 4. Remove file from bot's files array
+        console.log(`🗑️ Removing file from bot: ${file.s3Key}`);
         await Bot.updateOne(
           { _id: botId },
-          { $pull: { files: { storedAs: file.storedAs } } }
+          { $pull: { files: { s3Key: file.s3Key } } }
         );
+        console.log(`✅ Removed file from bot`);
       } catch (error) {
         cleanupResults.errors.push({
           file: file.filename,
           error: error.message,
         });
-        console.error(`Error cleaning up file ${file.filename}:`, error);
+        console.error(`❌ Error cleaning up file ${file.filename}:`, error);
       }
     }
 
-    // 5. Call Python service to cleanup vector store for these files using centralized service
+    // 5. Call Python service to cleanup vector store
     try {
+      console.log(
+        `🧹 Cleaning up vector store for files:`,
+        filesToDelete.map((f) => f.s3Key)
+      );
       await pythonService.cleanupFiles(
         botId,
-        filesToDelete.map((f) => f.storedAs),
+        filesToDelete.map((f) => f.s3Key),
         userId,
         req.user.tenantId
       );
+      console.log(`✅ Cleaned up vector store`);
     } catch (error) {
-      console.error("Failed to cleanup vector store files:", error);
+      console.error("❌ Failed to cleanup vector store files:", error);
       cleanupResults.errors.push({
         operation: "vector_store_cleanup",
         error: error.message,
       });
     }
+
+    console.log("✅ Cleanup completed:", cleanupResults);
+    console.log("🧹 SERVER CLEANUP DEBUG - END =================");
 
     res.json({
       ok: true,
@@ -531,70 +594,14 @@ export const cleanupUploads = async (req, res) => {
       results: cleanupResults,
     });
   } catch (error) {
-    console.error("Error in cleanupUploads:", error);
+    console.error("❌ Error in cleanupUploads:", error);
+    console.log("🧹 SERVER CLEANUP DEBUG - END =================");
     res.status(500).json({
       ok: false,
-      error: "Failed to cleanup uploads",
+      error: "Failed to cleanup uploads: " + error.message,
     });
   }
 };
-
-// Helper function to delete physical files (for any remaining local files)
-async function deleteBotFiles(files) {
-  console.log(`🗑️ Starting file deletion for ${files.length} files...`);
-
-  const deletePromises = files.map(async (file) => {
-    try {
-      if (file.storedAs) {
-        const UPLOAD_DIR = path.resolve(
-          process.cwd(),
-          process.env.UPLOAD_DIR || "uploads"
-        );
-        const filePath = path.join(UPLOAD_DIR, file.storedAs);
-
-        console.log(`🔍 Attempting to delete file: ${filePath}`);
-
-        try {
-          await fs.access(filePath);
-          console.log(`📁 File exists, deleting: ${file.storedAs}`);
-          await fs.unlink(filePath);
-          console.log(`✅ Successfully deleted file: ${file.storedAs}`);
-          return { success: true, file: file.storedAs };
-        } catch (error) {
-          if (error.code === "ENOENT") {
-            console.log(
-              `ℹ️ File already deleted or not found: ${file.storedAs}`
-            );
-            return { success: true, file: file.storedAs, alreadyGone: true };
-          }
-          throw error;
-        }
-      } else {
-        console.warn(`⚠️ File record missing storedAs field:`, file);
-        return {
-          success: false,
-          file: file.filename,
-          error: "Missing storedAs field",
-        };
-      }
-    } catch (error) {
-      console.error(
-        `❌ Failed to delete file ${file.storedAs}:`,
-        error.message
-      );
-      return { success: false, file: file.storedAs, error: error.message };
-    }
-  });
-
-  const results = await Promise.all(deletePromises);
-  const successful = results.filter((r) => r.success).length;
-  const failed = results.filter((r) => !r.success).length;
-
-  console.log(
-    `📊 File deletion summary: ${successful} successful, ${failed} failed out of ${files.length} total`
-  );
-  return results;
-}
 
 // Update bot files (used by upload controller)
 export const updateBotFiles = async (botId, ownerId, fileRecords) => {
