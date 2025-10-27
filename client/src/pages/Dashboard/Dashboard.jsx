@@ -1,4 +1,4 @@
-// src/pages/Dashboard/Dashboard.jsx
+// src/pages/Dashboard/Dashboard.jsx - UPDATED with evaluation feature
 import { useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { useDashboard } from "../../hooks/useDashboard";
@@ -14,6 +14,7 @@ import LoadingState from "./components/LoadingState";
 import ErrorState from "./components/ErrorState";
 import BotEditDialog from "../../components/BotEditDialog/BotEditDialog";
 import DeleteConfirmationDialog from "../../components/DeleteConfirmationDialog/DeleteConfirmationDialog";
+import EvaluationChat from "../../components/EvaluationChat/EvaluationChat"; // ADD THIS IMPORT
 
 export default function Dashboard() {
   const { user, token, isAuthenticated } = useAuth();
@@ -30,6 +31,8 @@ export default function Dashboard() {
     saveLoading,
     fileUploadLoading,
     deleteLoading,
+    evaluationSession,
+    selectedBotForEvaluation, // ADD THIS
 
     // Setters
     setBots,
@@ -43,6 +46,7 @@ export default function Dashboard() {
     setSaveLoading,
     setFileUploadLoading,
     setDeleteLoading,
+    setEvaluationSession, // ADD THIS
 
     // Actions
     removeBot,
@@ -50,6 +54,8 @@ export default function Dashboard() {
     closeEditDialog,
     openDeleteDialog,
     closeDeleteDialog,
+    startEvaluation, // ADD THIS
+    stopEvaluation, // ADD THIS
   } = useDashboard();
 
   useEffect(() => {
@@ -130,6 +136,29 @@ export default function Dashboard() {
 
   const handleDeleteClick = (bot) => {
     openDeleteDialog(bot);
+  };
+
+  // ADD EVALUATION FUNCTION
+  const handleEvaluateBot = async (bot) => {
+    try {
+      startEvaluation(bot);
+      toast.loading("Starting evaluation session...", {
+        id: "evaluation-start",
+      });
+
+      const response = await api.post("/evaluate/start", { botId: bot._id });
+      setEvaluationSession(response.data);
+
+      toast.success(`Evaluation started for ${bot.botName}`, {
+        id: "evaluation-start",
+      });
+    } catch (error) {
+      console.error("Failed to start evaluation:", error);
+      toast.error("Failed to start evaluation session", {
+        id: "evaluation-start",
+      });
+      stopEvaluation();
+    }
   };
 
   const handleConfirmDelete = async (bot) => {
@@ -532,10 +561,11 @@ export default function Dashboard() {
 
         {Array.isArray(bots) && bots.length > 0 ? (
           <BotGrid
-            bots={bots} // Make sure this is being passed
+            bots={bots}
             onEdit={handleEditBot}
             onDelete={handleDeleteClick}
             onInspect={handleInspectBot}
+            onEvaluate={handleEvaluateBot} // ADD THIS PROP
           />
         ) : (
           <EmptyState onCreateBot={handleCreateBot} saveLoading={saveLoading} />
@@ -557,6 +587,15 @@ export default function Dashboard() {
           onConfirm={handleConfirmDelete}
           loading={deleteLoading}
         />
+
+        {/* ADD Evaluation Chat Dialog */}
+        {selectedBotForEvaluation && (
+          <EvaluationChat
+            bot={selectedBotForEvaluation}
+            session={evaluationSession}
+            onClose={stopEvaluation}
+          />
+        )}
       </div>
     </div>
   );

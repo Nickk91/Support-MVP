@@ -1,4 +1,4 @@
-// server\services\pythonService.js
+// server\services\pythonService.js - CORRECTED VERSION
 import axios from "axios";
 
 class PythonService {
@@ -376,6 +376,93 @@ class PythonService {
    */
   async getStatus() {
     return this.healthCheck();
+  }
+
+  // 🆕 EVALUATION METHODS - CORRECTED
+
+  /**
+   * Start a new evaluation session for a bot
+   */
+  async startEvaluation(botId, userId, tenantId = null) {
+    // ✅ Added 'async' keyword
+    const headers = {
+      "X-User-ID": userId,
+    };
+
+    if (tenantId) {
+      headers["X-Tenant-ID"] = tenantId;
+    }
+
+    const data = {
+      bot_id: botId,
+      tenant_id: tenantId,
+      user_id: userId,
+    };
+
+    return this.request("POST", "/api/evaluate/start", data, headers);
+  }
+
+  /**
+   * Send message in evaluation session
+   */
+  async evaluateChat(sessionId, message, botId, userId, tenantId = null) {
+    const headers = {
+      "X-User-ID": userId,
+    };
+
+    if (tenantId) {
+      headers["X-Tenant-ID"] = tenantId;
+    }
+
+    const data = {
+      session_id: sessionId,
+      message: {
+        message: message,
+        bot_id: botId,
+      },
+    };
+
+    return this.request("POST", "/api/evaluate/chat", data, headers);
+  }
+
+  /**
+   * Get evaluation session data
+   */
+  async getEvaluationSession(sessionId, userId, tenantId = null) {
+    const headers = {
+      "X-User-ID": userId,
+    };
+
+    if (tenantId) {
+      headers["X-Tenant-ID"] = tenantId;
+    }
+
+    return this.request(
+      "GET",
+      `/api/evaluate/session/${sessionId}`,
+      {},
+      headers
+    );
+  }
+
+  /**
+   * End evaluation session
+   */
+  async endEvaluation(sessionId, userId, tenantId = null) {
+    const headers = {
+      "X-User-ID": userId,
+    };
+
+    if (tenantId) {
+      headers["X-Tenant-ID"] = tenantId;
+    }
+
+    return this.request(
+      "DELETE",
+      `/api/evaluate/session/${sessionId}`,
+      {},
+      headers
+    );
   }
 }
 

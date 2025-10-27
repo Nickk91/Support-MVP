@@ -1,32 +1,43 @@
-// src/hooks/useDashboard.js
+// src/hooks/useDashboard.js - UPDATED with evaluation state
 import { useCallback } from "react";
 import { useDashboardStore } from "../store/dashboardStore";
 
 export const useDashboard = () => {
   const {
+    // State
     bots,
-    setBots,
     selectedBot,
-    setSelectedBot,
     botToDelete,
-    setBotToDelete,
     editDialogOpen,
-    setEditDialogOpen,
     deleteDialogOpen,
-    setDeleteDialogOpen,
     loading,
-    setLoading,
     error,
-    setError,
     refreshing,
-    setRefreshing,
     saveLoading,
-    setSaveLoading,
     fileUploadLoading,
-    setFileUploadLoading,
     deleteLoading,
+    evaluationSession,
+    selectedBotForEvaluation,
+
+    // Setters
+    setBots,
+    setSelectedBot,
+    setBotToDelete,
+    setEditDialogOpen,
+    setDeleteDialogOpen,
+    setLoading,
+    setError,
+    setRefreshing,
+    setSaveLoading,
+    setFileUploadLoading,
     setDeleteLoading,
+    setEvaluationSession,
+    setSelectedBotForEvaluation,
+
+    // Compound actions
     clearSelection,
+    startEvaluation: storeStartEvaluation,
+    stopEvaluation: storeStopEvaluation,
   } = useDashboardStore();
 
   // Bot management actions
@@ -84,6 +95,18 @@ export const useDashboard = () => {
     setBotToDelete(null);
   }, [setDeleteDialogOpen, setBotToDelete]);
 
+  // Evaluation actions
+  const startEvaluation = useCallback(
+    (bot) => {
+      storeStartEvaluation(bot);
+    },
+    [storeStartEvaluation]
+  );
+
+  const stopEvaluation = useCallback(() => {
+    storeStopEvaluation();
+  }, [storeStopEvaluation]);
+
   return {
     // State
     bots,
@@ -97,6 +120,8 @@ export const useDashboard = () => {
     saveLoading,
     fileUploadLoading,
     deleteLoading,
+    evaluationSession,
+    selectedBotForEvaluation,
 
     // Setters
     setBots,
@@ -110,6 +135,8 @@ export const useDashboard = () => {
     setSaveLoading,
     setFileUploadLoading,
     setDeleteLoading,
+    setEvaluationSession,
+    setSelectedBotForEvaluation,
 
     // Compound actions
     addBot,
@@ -119,6 +146,8 @@ export const useDashboard = () => {
     closeEditDialog,
     openDeleteDialog,
     closeDeleteDialog,
+    startEvaluation,
+    stopEvaluation,
     clearSelection,
   };
 };
