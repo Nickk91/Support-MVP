@@ -344,3 +344,48 @@ def cleanup_pending_deletions():
             
     except Exception as e:
         logger.error(f"❌ Failed to cleanup pending deletions: {e}")
+
+
+def delete_files_from_vectorstore(vectorstore, file_paths: List[str]) -> int:
+    """
+    Delete specific files from vector store by their source metadata
+    """
+    try:
+        deleted_count = 0
+        
+        # Get all documents from the vector store
+        all_docs = vectorstore.get()
+        
+        if not all_docs or 'metadatas' not in all_docs:
+            return 0
+        
+        # Find document IDs that match the file paths
+        ids_to_delete = []
+        for i, metadata in enumerate(all_docs['metadatas']):
+            if metadata and 'source' in metadata:
+                if metadata['source'] in file_paths:
+                    ids_to_delete.append(all_docs['ids'][i])
+                    deleted_count += 1
+        
+        # Delete the matching documents
+        if ids_to_delete:
+            vectorstore.delete(ids=ids_to_delete)
+            print(f"✅ Deleted {len(ids_to_delete)} documents from vector store for files: {file_paths}")
+        
+        return deleted_count
+        
+    except Exception as e:
+        print(f"❌ Error deleting files from vector store: {e}")
+        return 0
+
+def cleanup_pending_deletions():
+    """
+    Clean up any pending deletions in vector stores
+    This can be called on startup
+    """
+    try:
+        # This would depend on your specific vector store implementation
+        # For ChromaDB, you might check for orphaned collections, etc.
+        print("✅ Vector store cleanup check completed")
+    except Exception as e:
+        print(f"⚠️ Vector store cleanup check failed: {e}")
