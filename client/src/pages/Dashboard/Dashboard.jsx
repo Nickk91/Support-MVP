@@ -139,6 +139,7 @@ export default function Dashboard() {
   };
 
   // ADD EVALUATION FUNCTION
+
   const handleEvaluateBot = async (bot) => {
     try {
       startEvaluation(bot);
@@ -154,9 +155,21 @@ export default function Dashboard() {
       });
     } catch (error) {
       console.error("Failed to start evaluation:", error);
-      toast.error("Failed to start evaluation session", {
-        id: "evaluation-start",
-      });
+
+      // FIX: Show appropriate error message based on error type
+      if (error.response?.status === 404) {
+        toast.error(
+          "Evaluation feature not available yet. Backend endpoint not found.",
+          {
+            id: "evaluation-start",
+          }
+        );
+      } else {
+        toast.error("Failed to start evaluation session", {
+          id: "evaluation-start",
+        });
+      }
+
       stopEvaluation();
     }
   };

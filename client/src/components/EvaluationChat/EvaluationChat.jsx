@@ -1,4 +1,4 @@
-// client/src/pages/components/EvaluationChat/EvaluationChat.jsx
+// client/src/components/EvaluationChat/EvaluationChat.jsx - FIXED
 import { useState, useRef, useEffect } from "react";
 import {
   Dialog,
@@ -21,9 +21,12 @@ export default function EvaluationChat({ bot, session, onClose }) {
   const scrollAreaRef = useRef(null);
 
   useEffect(() => {
-    // Load initial session messages if any
-    if (session.messages) {
+    // FIX: Check if session exists before accessing messages
+    if (session?.messages) {
       setMessages(session.messages);
+    } else {
+      // Initialize with empty messages if no session data
+      setMessages([]);
     }
   }, [session]);
 
@@ -50,6 +53,11 @@ export default function EvaluationChat({ bot, session, onClose }) {
     setLoading(true);
 
     try {
+      // FIX: Check if session exists before using session_id
+      if (!session?.session_id) {
+        throw new Error("Evaluation session not started properly");
+      }
+
       const response = await api.post("/evaluate/chat", {
         sessionId: session.session_id,
         message: inputMessage.trim(),
@@ -100,12 +108,11 @@ export default function EvaluationChat({ bot, session, onClose }) {
               Testing: {bot.botName}
             </DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Evaluate your bot's responses in real-time
+              {session?.session_id
+                ? "Evaluation session active"
+                : "Starting evaluation session..."}
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
         </DialogHeader>
 
         {/* Chat Messages */}
@@ -208,12 +215,12 @@ export default function EvaluationChat({ bot, session, onClose }) {
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Type your message..."
-            disabled={loading}
+            disabled={loading || !session?.session_id}
             className="flex-1"
           />
           <Button
             onClick={sendMessage}
-            disabled={!inputMessage.trim() || loading}
+            disabled={!inputMessage.trim() || loading || !session?.session_id}
             size="icon"
           >
             <Send className="h-4 w-4" />
