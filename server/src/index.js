@@ -14,6 +14,7 @@ import { connectMongoose } from "./lib/mongo.js"; // CHANGED: connectMongoose in
 import authRoutes from "./routes/auth.js";
 import ragRoutes from "./routes/rag.js";
 import chatRoutes from "./routes/chat.js";
+import evaluateRoutes from "./routes/evaluate.js";
 import { sanitizeInput } from "./middleware/sanitizeHtmlMiddleware.js";
 import inspectionRoutes from "./routes/inspection.js";
 
@@ -190,6 +191,7 @@ async function main() {
   app.use("/api/rag", ragRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/inspect", inspectionRoutes);
+  app.use("/api/evaluate", evaluateRoutes);
 
   app.get("/api/debug/collections", async (req, res) => {
     try {
