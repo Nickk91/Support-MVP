@@ -1,7 +1,14 @@
-// src/pages/Dashboard/components/BotGrid.jsx
+// src/pages/Dashboard/components/BotGrid.jsx - UPDATED
 import BotCard from "./BotCard";
 
-export default function BotGrid({ bots, onEdit, onDelete, onInspect }) {
+export default function BotGrid({
+  bots,
+  onEdit,
+  onDelete,
+  onInspect,
+  onEvaluate,
+}) {
+  // ADD onEvaluate prop
   return (
     <div className="mb-6">
       <h2 className="text-xl font-semibold mb-4">Your AI Assistants</h2>
@@ -13,6 +20,7 @@ export default function BotGrid({ bots, onEdit, onDelete, onInspect }) {
             onEdit={() => onEdit(bot)}
             onDelete={() => onDelete(bot)}
             onInspect={() => onInspect(bot)}
+            onEvaluate={() => onEvaluate(bot)} // ADD THIS
           />
         ))}
       </div>
