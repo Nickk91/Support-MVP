@@ -1,42 +1,44 @@
-// TEMPORARY MOCK - Add this to evaluateController.js for testing
-const mockEvaluationSessions = new Map();
+// server/src/controllers/evaluateController.js - UPDATE to use real Python service
+import pythonService from "../services/pythonService.js";
 
-// Mock start evaluation (temporary)
+// Start evaluation session
 export const startEvaluation = async (req, res) => {
   try {
     const { botId } = req.body;
-    const userId = req.user.id;
-    const tenantId = req.user.tenantId;
 
-    console.log("🔍 Starting MOCK evaluation session:", {
+    // FIX: Use the correct property names from auth middleware
+    const userId = req.user.userId; // Changed from req.user.id
+    const tenantId = req.user.tenantId; // This might also be undefined
+
+    console.log("🔍 Starting evaluation session with Python backend:", {
       botId,
       userId,
       tenantId,
+      fullUser: req.user, // Log the full user object for debugging
     });
 
-    // Generate session ID
-    const sessionId = `eval_${Date.now()}_${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+    // If tenantId is undefined, we might need to handle it
+    const effectiveTenantId = tenantId || "default_tenant";
 
-    // Create mock session
-    mockEvaluationSessions.set(sessionId, {
-      session_id: sessionId,
-      bot_id: botId,
-      user_id: userId,
-      tenant_id: tenantId,
-      created_at: new Date().toISOString(),
-      messages: [],
-    });
+    // Use real Python service
+    const result = await pythonService.startEvaluation(
+      botId,
+      userId,
+      effectiveTenantId
+    );
 
-    // Return mock response
-    res.json({
-      session_id: sessionId,
-      message: "Mock evaluation session started",
-      status: "active",
-    });
+    console.log("✅ Evaluation session started:", result);
+    res.json(result);
   } catch (error) {
-    console.error("Mock evaluation start error:", error);
+    console.error("Evaluation start error:", error);
+
+    if (error.status === 422) {
+      return res.status(422).json({
+        error: "Invalid request format to Python service",
+        details: error.message,
+      });
+    }
+
     res.status(500).json({
       error: "Failed to start evaluation session",
       details: error.message,
@@ -44,48 +46,45 @@ export const startEvaluation = async (req, res) => {
   }
 };
 
-// Mock evaluate chat (temporary)
+// Send message in evaluation session
 export const evaluateChat = async (req, res) => {
   try {
     const { sessionId, message, botId } = req.body;
 
-    console.log("🔍 MOCK evaluation chat:", { sessionId, message, botId });
+    // FIX: Use the correct property names
+    const userId = req.user.userId; // Changed from req.user.id
+    const tenantId = req.user.tenantId || "default_tenant";
 
-    // Get session
-    const session = mockEvaluationSessions.get(sessionId);
-    if (!session) {
-      return res.status(404).json({
-        error: "Session not found",
-        details: `Evaluation session ${sessionId} does not exist`,
+    console.log("🔍 Sending evaluation message to Python backend:", {
+      sessionId,
+      message,
+      botId,
+    });
+
+    // Use real Python service
+    const result = await pythonService.evaluateChat(
+      sessionId,
+      message,
+      botId,
+      userId,
+      tenantId
+    );
+
+    console.log("✅ Evaluation response received:", {
+      responseLength: result.response?.length,
+      sourcesCount: result.sources?.length,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error("Evaluation chat error:", error);
+
+    if (error.status === 422) {
+      return res.status(422).json({
+        error: "Invalid message format to Python service",
+        details: error.message,
       });
     }
 
-    // Add user message
-    session.messages.push({
-      id: `msg_${Date.now()}`,
-      type: "user",
-      content: message,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Generate mock bot response
-    const botResponse = {
-      id: `msg_${Date.now() + 1}`,
-      type: "bot",
-      content: `This is a mock response to: "${message}". The actual RAG system would process this.`,
-      sources: ["mock_document.pdf", "sample_policy.txt"],
-      timestamp: new Date().toISOString(),
-    };
-
-    session.messages.push(botResponse);
-
-    res.json({
-      response: botResponse.content,
-      sources: botResponse.sources,
-      session_id: sessionId,
-    });
-  } catch (error) {
-    console.error("Mock evaluation chat error:", error);
     res.status(500).json({
       error: "Failed to process evaluation message",
       details: error.message,
@@ -93,22 +92,22 @@ export const evaluateChat = async (req, res) => {
   }
 };
 
-// Mock get session (temporary)
+// Get evaluation session
 export const getEvaluationSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
+    const userId = req.user.id;
+    const tenantId = req.user.tenantId;
 
-    const session = mockEvaluationSessions.get(sessionId);
-    if (!session) {
-      return res.status(404).json({
-        error: "Session not found",
-        details: `Evaluation session ${sessionId} does not exist`,
-      });
-    }
+    const result = await pythonService.getEvaluationSession(
+      sessionId,
+      userId,
+      tenantId
+    );
 
-    res.json(session);
+    res.json(result);
   } catch (error) {
-    console.error("Mock get evaluation session error:", error);
+    console.error("Get evaluation session error:", error);
     res.status(500).json({
       error: "Failed to get evaluation session",
       details: error.message,
@@ -116,19 +115,22 @@ export const getEvaluationSession = async (req, res) => {
   }
 };
 
-// Mock end session (temporary)
+// End evaluation session
 export const endEvaluation = async (req, res) => {
   try {
     const { sessionId } = req.params;
+    const userId = req.user.id;
+    const tenantId = req.user.tenantId;
 
-    const deleted = mockEvaluationSessions.delete(sessionId);
+    const result = await pythonService.endEvaluation(
+      sessionId,
+      userId,
+      tenantId
+    );
 
-    res.json({
-      message: deleted ? "Evaluation session ended" : "Session not found",
-      session_id: sessionId,
-    });
+    res.json(result);
   } catch (error) {
-    console.error("Mock end evaluation session error:", error);
+    console.error("End evaluation session error:", error);
     res.status(500).json({
       error: "Failed to end evaluation session",
       details: error.message,

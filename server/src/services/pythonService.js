@@ -384,7 +384,6 @@ class PythonService {
    * Start a new evaluation session for a bot
    */
   async startEvaluation(botId, userId, tenantId = null) {
-    // ✅ Added 'async' keyword
     const headers = {
       "X-User-ID": userId,
     };
@@ -396,7 +395,7 @@ class PythonService {
     const data = {
       bot_id: botId,
       tenant_id: tenantId,
-      user_id: userId,
+      user_id: userId, // Make sure this is included
     };
 
     return this.request("POST", "/api/evaluate/start", data, headers);
