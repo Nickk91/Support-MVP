@@ -24,14 +24,15 @@ class InspectionStore {
         }));
       }
 
-      // Fallback to mock data if no documents found
+      // No documents found - return empty array
       console.log(
-        `⚠️ No documents found in MongoDB for bot ${botId}, using mock data`
+        `ℹ️ No documents found in MongoDB for bot ${botId} - returning empty array`
       );
-      return this.getMockDocuments(botId);
+      return [];
     } catch (error) {
       console.error("❌ Error listing documents from MongoDB:", error);
-      return this.getMockDocuments(botId);
+      // Return empty array on error as well
+      return [];
     }
   }
 
@@ -70,53 +71,20 @@ class InspectionStore {
         };
       }
 
-      // Fallback to mock data if no chunks found
+      // No chunks found for this document - return null
       console.log(
-        `⚠️ No chunks found in MongoDB for ${documentPath}, using mock data`
+        `ℹ️ No chunks found in MongoDB for ${documentPath} - document may not exist or processing failed`
       );
-      return this.getMockInspectionData(botId, documentPath);
+      return null;
     } catch (error) {
       console.error("❌ Error getting inspection data from MongoDB:", error);
-      return this.getMockInspectionData(botId, documentPath);
+      // Return null on error
+      return null;
     }
   }
 
-  getMockDocuments(botId) {
-    // Keep as fallback
-    return [
-      {
-        document_path: `/uploads/${botId}/document1.pdf`,
-        last_processed: new Date().toISOString(),
-        user_id: "user123",
-        file_size: 1024 * 1024,
-        status: "processed",
-      },
-    ];
-  }
-
-  getMockInspectionData(botId, documentPath) {
-    // Keep as fallback
-    if (!documentPath.includes("document1")) return null;
-
-    return {
-      document_path: documentPath,
-      bot_id: botId,
-      parsing_result: [
-        {
-          chunk_id: "chunk_1",
-          content: "Mock data - no real chunks found",
-          char_count: 98,
-          token_count: 25,
-          page_number: 1,
-          metadata: { page: 1, section: "introduction" },
-        },
-      ],
-      processing_info: {
-        processed_at: new Date().toISOString(),
-        chunk_count: 1,
-      },
-    };
-  }
+  // Remove mock data methods entirely since we don't need them anymore
+  // getMockDocuments() and getMockInspectionData() removed
 }
 
 export default InspectionStore;

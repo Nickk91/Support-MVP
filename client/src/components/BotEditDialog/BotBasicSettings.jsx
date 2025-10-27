@@ -17,7 +17,7 @@ export default function BotBasicSettings({ bot, onChange }) {
           value={bot?.botName || ""}
           onChange={(e) => handleChange("botName", e.target.value)}
           placeholder="My Support Assistant"
-          maxLength={16}
+          maxLength={18}
         />
         <p className="text-sm text-muted-foreground">
           A friendly name for your AI assistant
