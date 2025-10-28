@@ -1,28 +1,64 @@
 // server/src/middleware/sanitizeHtmlMiddleware.js
 import sanitizeHtml from "sanitize-html";
 
-const sanitizeAndCheck = (input) => {
-  if (typeof input === "string") {
-    const sanitized = sanitizeHtml(input, {
-      allowedTags: [], // No HTML tags allowed
-      allowedAttributes: {}, // No attributes allowed
-      disallowedTagsMode: "escape", // Escape any HTML tags
-    });
+const isSafeText = (input) => /^[a-zA-Z0-9\s&.,!?:;\-\*\n\r]+$/.test(input);
 
-    // Check if sanitization changed the input (indicating unsafe content)
+const decodeEntities = (str) => {
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+};
+
+const sanitizeAndCheck = (input, depth = 0, maxDepth = 10) => {
+  if (depth > maxDepth) {
+    throw new Error("Maximum recursion depth exceeded");
+  }
+  if (typeof input === "string") {
+    if (isSafeText(input)) {
+      return input; // Skip sanitization for safe text
+    }
+    const sanitized = sanitizeHtml(input, {
+      allowedTags: [],
+      allowedAttributes: {},
+      disallowedTagsMode: "escape",
+      parser: {
+        decodeEntities: false,
+        encodeEntities: false, // Preserve safe entities like &
+      },
+    });
     if (sanitized !== input) {
-      throw new Error("Unsafe content detected");
+      console.warn("Sanitization modified input:", {
+        input,
+        sanitized,
+        differences: [...input]
+          .map((char, i) =>
+            input[i] !== sanitized[i]
+              ? { index: i, inputChar: input[i], sanitizedChar: sanitized[i] }
+              : null
+          )
+          .filter(Boolean),
+      });
+      if (decodeEntities(sanitized) !== input) {
+        throw new Error(
+          `Unsafe content detected: input="${input}", sanitized="${sanitized}"`
+        );
+      }
     }
     return sanitized;
   } else if (Array.isArray(input)) {
-    // Recursively sanitize array elements
-    return input.map((item) => sanitizeAndCheck(item));
+    return input.map((item) => sanitizeAndCheck(item, depth + 1, maxDepth));
   } else if (typeof input === "object" && input !== null) {
-    // Recursively sanitize object properties
     const sanitizedObject = {};
     for (const key in input) {
       if (input.hasOwnProperty(key)) {
-        sanitizedObject[key] = sanitizeAndCheck(input[key]);
+        sanitizedObject[key] = sanitizeAndCheck(
+          input[key],
+          depth + 1,
+          maxDepth
+        );
       }
     }
     return sanitizedObject;
@@ -32,21 +68,15 @@ const sanitizeAndCheck = (input) => {
 
 export const sanitizeInput = (req, res, next) => {
   try {
-    // Only sanitize request body (query and params are read-only in Express)
     if (req.body) {
       req.body = sanitizeAndCheck(req.body);
     }
-
-    // For query and params, create sanitized copies but don't replace the originals
-    // This allows the original data to be available for logging/debugging
     if (req.query && Object.keys(req.query).length > 0) {
       req.sanitizedQuery = sanitizeAndCheck(req.query);
     }
-
     if (req.params && Object.keys(req.params).length > 0) {
       req.sanitizedParams = sanitizeAndCheck(req.params);
     }
-
     next();
   } catch (error) {
     console.warn("Input sanitization blocked unsafe content:", error.message);
