@@ -149,54 +149,64 @@ def ingest_files(
     
     return len(chunks)
 
-# ... REST OF THE FILE REMAINS EXACTLY THE SAME ...
-# KEEP ALL THE EXISTING answer_query, _answer_with_llm_only, _is_context_insufficient functions
 
-# UPDATE answer_query function to accept tenant_id
+
+# python/app/rag/core.py - FIX the answer_query function
 async def answer_query(
     bot_id: str,
     question: str,
     *,
     user_id: Optional[str] = None,
-    tenant_id: Optional[str] = None,  # ADD tenant_id parameter
+    tenant_id: Optional[str] = None,
     system_message: Optional[str] = None,
     fallback_to_llm: bool = True,
     include_sources: bool = False
 ) -> Dict[str, Any]:
-    """Answer a question using RAG, with optional fallback to pure LLM"""
     
     system_message = system_message or (
         "You are a concise support assistant. Use ONLY the provided context. "
         "If the answer is not in the context, say you don't know."
     )
 
-    # Build components - PASS tenant_id to retriever
+    # Build components
     retriever = make_retriever(bot_id, user_id=user_id, tenant_id=tenant_id)
     llm = make_llm()
     
     # Try to retrieve relevant documents
     try:
-        # Get documents for source tracking (regardless of fallback)
+        # Get documents for source tracking
         if callable(retriever):
             documents = retriever(question)
         else:
             documents = retriever.get_relevant_documents(question)
             
-        logger.info(f"Retrieved {len(documents)} documents")
+        logger.info(f"Retrieved {len(documents)} documents for bot {bot_id}")
         
-        # TEMPORARY: Bypass the guardrail completely for testing - REMOVE THIS LATER
-        if fallback_to_llm:
-            print("🔍 DEBUG: Using pure LLM fallback for testing")
-            result = _answer_with_llm_only(llm, question, system_message)
-            return {
-                "answer": result,
-                "sources": ["general_knowledge"],
-                "source_details": [],
-                "document_count": 0,
-                "fallback_used": True
-            }
+        # REMOVED: The temporary bypass that was forcing LLM fallback
         
-        # Normal RAG flow
+        # Check if we have sufficient context
+        if not documents or _is_context_insufficient(documents, question):
+            logger.warning(f"Insufficient context for question: {question}")
+            if fallback_to_llm:
+                logger.info("Falling back to general knowledge due to insufficient context")
+                result = _answer_with_llm_only(llm, question, system_message)
+                return {
+                    "answer": result,
+                    "sources": ["general_knowledge"],
+                    "source_details": [],
+                    "document_count": 0,
+                    "fallback_used": True
+                }
+            else:
+                return {
+                    "answer": "I don't have enough information in my knowledge base to answer this question.",
+                    "sources": [],
+                    "source_details": [],
+                    "document_count": 0,
+                    "fallback_used": False
+                }
+        
+        # Normal RAG flow with actual documents
         prompt = build_prompt(system_message)
         chain = build_chain(llm, prompt, retriever)
         answer = chain.invoke({"question": question})
@@ -214,14 +224,14 @@ async def answer_query(
             ]))
             sources = source_files
             
-            # Detailed source information - INCLUDE tenant_id in response
+            # Detailed source information
             source_details = [
                 {
                     "source": doc.metadata.get("source", "unknown"),
                     "user_scope": doc.metadata.get("user_scope", "unknown"),
-                    "tenant_id": doc.metadata.get("tenant_id", "unknown"),  # ADD tenant_id to source details
+                    "tenant_id": doc.metadata.get("tenant_id", "unknown"),
                     "content_preview": doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content,
-                    "relevance_score": getattr(doc, 'score', None)  # If available
+                    "relevance_score": getattr(doc, 'score', None)
                 }
                 for doc in documents
             ]
@@ -245,7 +255,7 @@ async def answer_query(
                 "fallback_used": True
             }
         raise
-
+    
 # KEEP _answer_with_llm_only but update return handling
 def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
     """Answer using LLM only without RAG context"""
