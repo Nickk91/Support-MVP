@@ -404,10 +404,22 @@ class PythonService {
   /**
    * Send message in evaluation session
    */
-  async evaluateChat(sessionId, message, botId, userId, tenantId = null) {
+  async evaluateChat(
+    sessionId,
+    message,
+    botId,
+    userId,
+    tenantId = null,
+    userJwt = null
+  ) {
     const headers = {
       "X-User-ID": userId,
     };
+
+    // PASS THE JWT TOKEN TO PYTHON SERVICE
+    if (userJwt) {
+      headers["Authorization"] = userJwt; // Pass the full "Bearer <token>" string
+    }
 
     if (tenantId) {
       headers["X-Tenant-ID"] = tenantId;
@@ -420,6 +432,12 @@ class PythonService {
         bot_id: botId,
       },
     };
+
+    console.log("🔐 Sending to Python service with headers:", {
+      hasJwt: !!userJwt,
+      userId: userId,
+      botId: botId,
+    });
 
     return this.request("POST", "/api/evaluate/chat", data, headers);
   }

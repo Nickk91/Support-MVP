@@ -1,207 +1,170 @@
-# python/app/routers/chat.py
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional
-import uuid
-from datetime import datetime, timezone
+# python/app/models/bot.py
+import os
+from typing import Optional, Dict, Any
+import requests
+import logging
 
-# Import your actual RAG components
-from app.rag.core import answer_query  # Your main RAG function
-from app.models.bot import BotConfig  # Your bot model
+logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
-# Request/Response models
-class ChatRequest(BaseModel):
-    message: str
-    bot_id: str
-    tenant_id: str
-    user_id: str
-
-class ChatResponse(BaseModel):
-    response: str
-    sources: List[str]
-    message_id: str
-    timestamp: str
-
-class ChatHistoryRequest(BaseModel):
-    bot_id: str
-    tenant_id: str
-    user_id: str
-    limit: int = 50
-
-class ChatMessage(BaseModel):
-    id: str
-    type: str  # 'user' or 'bot'
-    content: str
-    timestamp: str
-    sources: Optional[List[str]] = None
-
-class ChatHistoryResponse(BaseModel):
-    messages: List[ChatMessage]
-
-# In-memory storage for demo (replace with database in production)
-chat_sessions = {}
-
-def get_current_utc_time():
-    """Get current timezone-aware UTC datetime"""
-    return datetime.now(timezone.utc)
-
-def format_iso_with_timezone(dt: datetime) -> str:
-    """Format datetime as ISO string with timezone info"""
-    return dt.isoformat()
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
-    """
-    Process chat message through your existing RAG pipeline
-    """
-    try:
-        # Get bot configuration
-        bot = await get_bot_config(request.bot_id, request.tenant_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail="Bot not found")
+class BotConfig:
+    """Bot configuration fetched from Express server"""
+    
+    def __init__(self, bot_data: Dict[str, Any]):
+        self.id = bot_data.get('_id') or bot_data.get('id')
+        self.bot_name = bot_data.get('botName')
+        self.model = bot_data.get('model', 'gpt-4o-mini')
+        self.system_message = bot_data.get('systemMessage')
+        self.fallback = bot_data.get('fallback')
+        self.greeting = bot_data.get('greeting') 
+        self.guardrails = bot_data.get('guardrails')
+        self.temperature = bot_data.get('temperature', 0.1)
+        self.files = bot_data.get('files', [])
+        self.owner_id = bot_data.get('ownerId')
         
-        # Process through your existing RAG core
-        rag_result = await answer_query(
-            bot_id=request.bot_id,
-            question=request.message,
-            user_id=request.user_id,
-            tenant_id=request.tenant_id,  # Use the tenant_id from request
-            system_message=bot.get("system_message", "You are a helpful AI assistant."),
-            fallback_to_llm=True,  # Use your fallback mechanism
-            include_sources=True
-        )
-        
-        # Store message in history
-        session_key = f"{request.tenant_id}_{request.bot_id}_{request.user_id}"
-        if session_key not in chat_sessions:
-            chat_sessions[session_key] = []
-        
-        current_time = get_current_utc_time()
-        
-        user_message = ChatMessage(
-            id=str(uuid.uuid4()),
-            type="user",
-            content=request.message,
-            timestamp=format_iso_with_timezone(current_time)
-        )
-        
-        # Extract sources from your RAG response
-        sources = rag_result.get("sources", [])
-        if not sources and rag_result.get("fallback_used"):
-            sources = ["general_knowledge"]
-        
-        bot_message = ChatMessage(
-            id=str(uuid.uuid4()),
-            type="bot",
-            content=rag_result.get("answer", "I'm sorry, I couldn't process your question."),
-            sources=sources,
-            timestamp=format_iso_with_timezone(current_time)
-        )
-        
-        chat_sessions[session_key].extend([user_message, bot_message])
-        
-        # Keep only last 100 messages per session to prevent memory issues
-        if len(chat_sessions[session_key]) > 100:
-            chat_sessions[session_key] = chat_sessions[session_key][-100:]
-        
-        return ChatResponse(
-            response=bot_message.content,
-            sources=bot_message.sources or [],
-            message_id=bot_message.id,
-            timestamp=bot_message.timestamp
-        )
-        
-    except Exception as e:
-        print(f"Chat processing error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
-
-@router.get("/chat/history", response_model=ChatHistoryResponse)
-async def get_chat_history(bot_id: str, tenant_id: str, user_id: str, limit: int = 50):
-    """
-    Retrieve chat history for a user/bot combination
-    """
-    try:
-        session_key = f"{tenant_id}_{bot_id}_{user_id}"
-        messages = chat_sessions.get(session_key, [])
-        
-        # Return most recent messages
-        recent_messages = messages[-limit:] if messages else []
-        
-        return ChatHistoryResponse(messages=recent_messages)
-        
-    except Exception as e:
-        print(f"Chat history error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {str(e)}")
-
-async def get_bot_config(bot_id: str, tenant_id: str):
-    """
-    Retrieve bot configuration - you'll need to implement this based on your bot storage
-    """
-    try:
-        # Option 1: If you have a bot management system
-        from app.models.bot import get_bot_by_id
-        bot = await get_bot_by_id(bot_id, tenant_id)
-        return bot
-        
-    except ImportError:
-        # Option 2: Mock bot config for testing - replace with your actual bot storage
-        print(f"Using mock bot config for {bot_id} - integrate with your bot system")
-        
-        # Different system messages based on bot_id for testing
-        system_messages = {
-            "support-bot": "You are a helpful customer support assistant. Answer questions based on the provided documentation.",
-            "sales-bot": "You are a friendly sales assistant. Help users with product information and purchasing decisions.",
-            "hr-bot": "You are an HR assistant. Help with company policies, benefits, and employee questions."
-        }
-        
+    def to_dict(self):
+        """Convert to dictionary for compatibility"""
         return {
-            "id": bot_id,
-            "tenant_id": tenant_id,
-            "name": f"Bot {bot_id}",
-            "model": "gpt-4",
-            "system_message": system_messages.get(bot_id, "You are a helpful AI assistant."),
-            "temperature": 0.7
+            "id": self.id,
+            "botName": self.bot_name,
+            "system_message": self.system_message,
+            "model": self.model,
+            "temperature": self.temperature,
+            "fallback": self.fallback,
+            "greeting": self.greeting,
+            "guardrails": self.guardrails
         }
-    except Exception as e:
-        print(f"Bot config error: {str(e)}")
-        return None
 
-# Health check endpoint for chat service
-@router.get("/health")
-async def chat_health():
-    """Health check for chat service"""
-    return {
-        "status": "healthy",
-        "service": "chat",
-        "active_sessions": len(chat_sessions),
-        "timestamp": format_iso_with_timezone(get_current_utc_time())
-    }
-
-# Additional endpoint to clear chat history (useful for testing)
-@router.delete("/chat/history")
-async def clear_chat_history(bot_id: str, tenant_id: str, user_id: str):
-    """Clear chat history for a specific session"""
+async def get_bot_by_id(bot_id: str, tenant_id: str, user_id: str = None) -> Optional[BotConfig]:
+    """
+    Fetch bot configuration from Express server using shared JWT secret
+    """
     try:
-        session_key = f"{tenant_id}_{bot_id}_{user_id}"
-        if session_key in chat_sessions:
-            del chat_sessions[session_key]
+        express_url = os.getenv('EXPRESS_SERVER_URL', 'http://localhost:4000')
+        jwt_secret = os.getenv('EXPRESS_JWT_SECRET', 'your-super-secret-jwt-key-change-in-production')
         
-        return {"status": "success", "message": "Chat history cleared"}
+        logger.info(f"🔍 Fetching bot config from: {express_url}/api/bots/{bot_id}")
+        logger.info(f"   Tenant: {tenant_id}, Bot: {bot_id}, User: {user_id}")
         
+        headers = {
+            'X-Tenant-ID': tenant_id,
+            'Content-Type': 'application/json',
+            'X-Internal-Token': jwt_secret
+        }
+        
+        # Send the actual user ID so the service can act on their behalf
+        if user_id:
+            headers['X-Target-User-ID'] = user_id  # Use this header for service accounts
+            headers['X-User-ID'] = user_id
+        
+        response = requests.get(
+            f"{express_url}/api/bots/{bot_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        logger.info(f"Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            bot_data = response.json()
+            logger.info(f"✅ Successfully fetched bot: {bot_data.get('botName')}")
+            return BotConfig(bot_data)
+        else:
+            logger.warning(f"❌ Failed to fetch bot config: {response.status_code}")
+            try:
+                error_data = response.json()
+                logger.warning(f"Error details: {error_data}")
+            except:
+                logger.warning(f"Response text: {response.text[:200]}...")
+            return None
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to clear history: {str(e)}")
+        logger.error(f"💥 Error fetching bot config: {e}")
+        return None
+    
 
-# Initialize chat session cleanup (optional)
-@router.on_event("startup")
-async def startup_event():
-    """Initialize chat service on startup"""
-    print("Chat service starting up...")
-    # You could load persistent chat history here if using a database
+async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str = None) -> BotConfig:
+    """
+    Get bot config with fallback to minimal config
+    """
+    bot_config = await get_bot_by_id(bot_id, tenant_id, user_id)
+    
+    if bot_config:
+        return bot_config
+    
+    # Fallback configuration
+    logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
+    return BotConfig({
+        'id': bot_id,
+        'botName': f'Bot {bot_id}',
+        'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
+        'model': 'gpt-4o-mini',
+        'temperature': 0.1
+    })
 
-@router.on_event("shutdown") 
-async def shutdown_event():
-    """Cleanup chat service on shutdown"""
-    print("Chat service shutting down...")
-    # You could save chat history to persistent storage here
+async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optional[BotConfig]:
+    """
+    Fetch bot configuration from Express server using user's JWT
+    """
+    try:
+        express_url = os.getenv('EXPRESS_SERVER_URL', 'http://localhost:4000')
+        
+        logger.info(f"🔍 Fetching bot config with JWT: {express_url}/api/bots/{bot_id}")
+        logger.info(f"   JWT token present: {jwt_token is not None}")
+        if jwt_token:
+            logger.info(f"   JWT token: {jwt_token[:50]}...")
+        
+        headers = {
+            'X-Tenant-ID': tenant_id,
+            'Content-Type': 'application/json',
+        }
+        
+        # Add the full Authorization header as received
+        if jwt_token:
+            headers['Authorization'] = jwt_token  # This should be "Bearer <token>"
+        
+        response = requests.get(
+            f"{express_url}/api/bots/{bot_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        logger.info(f"Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            if response_data.get('ok'):
+                bot_data = response_data['bot']
+                logger.info(f"✅ Successfully fetched bot: {bot_data.get('botName')}")
+                return BotConfig(bot_data)
+            else:
+                logger.warning(f"❌ Response not OK: {response_data}")
+        else:
+            logger.warning(f"❌ Failed to fetch bot config: {response.status_code}")
+            try:
+                error_data = response.json()
+                logger.warning(f"Error details: {error_data}")
+            except:
+                logger.warning(f"Response text: {response.text[:200]}...")
+            return None
+            
+    except Exception as e:
+        logger.error(f"💥 Error fetching bot config: {e}")
+        return None
+async def get_bot_config_with_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> BotConfig:
+    """
+    Get bot config with JWT authentication
+    """
+    bot_config = await get_bot_by_jwt(bot_id, jwt_token, tenant_id)
+    
+    if bot_config:
+        return bot_config
+    
+    # Fallback configuration
+    logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
+    return BotConfig({
+        'id': bot_id,
+        'botName': f'Bot {bot_id}',
+        'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
+        'model': 'gpt-4o-mini',
+        'temperature': 0.1
+    })
