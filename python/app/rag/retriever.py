@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class SecureScopedRetriever:
     """
-    Secure retriever that enforces user scoping AND tenant isolation at the database level when possible.
+    Secure retriever that enforces user scoping without tenant duplication.
     This is a simple class without Pydantic inheritance to avoid field issues.
     """
     
@@ -22,8 +22,8 @@ class SecureScopedRetriever:
         self.user_scope = f"user:{user_id}" if user_id else None
         
     def get_relevant_documents(self, query: str) -> List[Document]:
-        """Retrieve documents with secure user scoping AND tenant isolation"""
-        logger.info(f"Retrieving documents for bot {self.bot_id}, tenant {self.tenant_id}, user {self.user_id}")
+        """Retrieve documents with secure user scoping"""
+        logger.info(f"Retrieving documents for bot {self.bot_id}, user {self.user_id}")
         
         # Try database-level filtering first (more secure and efficient)
         if self._supports_native_filtering():
@@ -39,18 +39,24 @@ class SecureScopedRetriever:
         return 'chroma' in backend_type
     
     def _retrieve_with_native_filtering(self, query: str) -> List[Document]:
-        """Use database-level filtering for maximum security with tenant isolation"""
+        """Use database-level filtering for user scoping without tenant duplication"""
         try:
-            # BASE FILTER: Always filter by tenant_id if provided
-            base_filter = {}
-            if self.tenant_id:
-                base_filter["tenant_id"] = self.tenant_id
-                logger.info(f"Applying tenant filter: {self.tenant_id}")
-            
+            # Simplified filtering - only use bot_id and user_scope
             if self.user_scope:
-                # For authenticated users: get user docs + global docs (within same tenant)
-                user_filter = {**base_filter, "user_scope": self.user_scope}
-                global_filter = {**base_filter, "user_scope": "global"}
+                # For authenticated users: get user docs + global docs
+                user_filter = {
+                    "$and": [
+                        {"bot_id": self.bot_id},
+                        {"user_scope": self.user_scope}
+                    ]
+                }
+                
+                global_filter = {
+                    "$and": [
+                        {"bot_id": self.bot_id},
+                        {"user_scope": "global"}
+                    ]
+                }
                 
                 user_docs = self.vectorstore.similarity_search(
                     query, k=self.k_user, filter=user_filter
@@ -59,15 +65,21 @@ class SecureScopedRetriever:
                     query, k=self.k_global, filter=global_filter
                 )
                 
-                logger.info(f"Native filtering: Found {len(user_docs)} user docs, {len(global_docs)} global docs for tenant: {self.tenant_id}, user: {self.user_id}")
+                logger.info(f"Native filtering: Found {len(user_docs)} user docs, {len(global_docs)} global docs")
                 return user_docs + global_docs
             else:
-                # For unauthenticated users: only global docs (within same tenant)
-                global_filter = {**base_filter, "user_scope": "global"}
+                # For unauthenticated users: only global docs
+                global_filter = {
+                    "$and": [
+                        {"bot_id": self.bot_id},
+                        {"user_scope": "global"}
+                    ]
+                }
+                
                 global_docs = self.vectorstore.similarity_search(
                     query, k=self.k_global, filter=global_filter
                 )
-                logger.info(f"Native filtering: Found {len(global_docs)} global docs for tenant: {self.tenant_id}, anonymous user")
+                logger.info(f"Native filtering: Found {len(global_docs)} global docs")
                 return global_docs
                 
         except Exception as e:
@@ -87,11 +99,7 @@ class SecureScopedRetriever:
             # Apply post-filtering manually
             filtered_docs = []
             for doc in docs:
-                # Check tenant match
-                if self.tenant_id and doc.metadata.get("tenant_id") != self.tenant_id:
-                    continue
-                
-                # Check scope match
+                # Check scope match (no more tenant filtering)
                 if self.user_scope:
                     if doc.metadata.get("user_scope") in [self.user_scope, "global"]:
                         filtered_docs.append(doc)
@@ -107,7 +115,7 @@ class SecureScopedRetriever:
             return []
     
     def _retrieve_with_post_filtering(self, query: str) -> List[Document]:
-        """Fallback method for backends without native filtering - with tenant isolation"""
+        """Fallback method for backends without native filtering"""
         logger.info("Using post-filtering retrieval")
         
         try:
@@ -124,18 +132,13 @@ class SecureScopedRetriever:
             docs = [d for d in docs if d.metadata.get("bot_id") == self.bot_id]
             logger.info(f"After bot filtering: {len(docs)} docs")
             
-            # Apply tenant filtering SECOND
-            if self.tenant_id:
-                docs = [d for d in docs if d.metadata.get("tenant_id") == self.tenant_id]
-                logger.info(f"After tenant filtering: {len(docs)} docs for tenant: {self.tenant_id}")
-            
-            # Apply scope filtering THIRD
+            # Apply scope filtering SECOND (no more tenant filtering)
             if not self.user_scope:
-                # Anonymous user: only global docs (within tenant)
+                # Anonymous user: only global docs
                 filtered_docs = [d for d in docs if d.metadata.get("user_scope") == "global"]
                 logger.info(f"Anonymous user - after scope filtering: {len(filtered_docs)} global docs")
             else:
-                # Authenticated user: user docs + global docs (within tenant)
+                # Authenticated user: user docs + global docs
                 allowed_scopes = {"global", self.user_scope}
                 filtered_docs = [d for d in docs if d.metadata.get("user_scope") in allowed_scopes]
                 logger.info(f"Authenticated user - after scope filtering: {len(filtered_docs)} docs")

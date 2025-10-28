@@ -47,27 +47,32 @@ export const startEvaluation = async (req, res) => {
 };
 
 // Send message in evaluation session
+// Send message in evaluation session
 export const evaluateChat = async (req, res) => {
   try {
     const { sessionId, message, botId } = req.body;
-
-    // FIX: Use the correct property names
-    const userId = req.user.userId; // Changed from req.user.id
+    const userId = req.user.userId;
     const tenantId = req.user.tenantId || "default_tenant";
+
+    // GET THE FULL AUTHORIZATION HEADER (Bearer <token>)
+    const userJwt = req.headers["authorization"];
 
     console.log("🔍 Sending evaluation message to Python backend:", {
       sessionId,
       message,
       botId,
+      userId,
+      hasJwt: !!userJwt,
     });
 
-    // Use real Python service
+    // Pass the user's JWT to Python service
     const result = await pythonService.evaluateChat(
       sessionId,
       message,
       botId,
       userId,
-      tenantId
+      tenantId,
+      userJwt // Pass the complete "Bearer <token>" string
     );
 
     console.log("✅ Evaluation response received:", {
@@ -77,21 +82,12 @@ export const evaluateChat = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error("Evaluation chat error:", error);
-
-    if (error.status === 422) {
-      return res.status(422).json({
-        error: "Invalid message format to Python service",
-        details: error.message,
-      });
-    }
-
     res.status(500).json({
       error: "Failed to process evaluation message",
       details: error.message,
     });
   }
 };
-
 // Get evaluation session
 export const getEvaluationSession = async (req, res) => {
   try {

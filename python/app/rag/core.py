@@ -163,32 +163,82 @@ async def answer_query(
     include_sources: bool = False
 ) -> Dict[str, Any]:
     
+    logger.info(f"🔍 CORE RAG - Starting query for bot {bot_id}, user {user_id}, tenant {tenant_id}")
+    
     system_message = system_message or (
         "You are a concise support assistant. Use ONLY the provided context. "
         "If the answer is not in the context, say you don't know."
     )
 
-    # Build components
+    # Build components with DEBUGGING
+    from app.rag.retriever import make_retriever, debug_retrieval
+    
+    # Test retrieval directly first to see if it works
+    logger.info("🔍 CORE RAG - Testing retrieval directly...")
+    retrieval_test = debug_retrieval(
+        bot_id=bot_id,
+        query=question,
+        user_id=user_id,
+        tenant_id=tenant_id
+    )
+    logger.info(f"🔍 CORE RAG - Direct retrieval test result:")
+    logger.info(f"   Success: {retrieval_test['success']}")
+    logger.info(f"   Documents found: {retrieval_test['documents_found']}")
+    logger.info(f"   Retriever info: {retrieval_test.get('retriever_info', {})}")
+    
+    if retrieval_test['success'] and retrieval_test['documents_found'] > 0:
+        for i, doc in enumerate(retrieval_test['documents']):
+            logger.info(f"   Doc {i+1}: {doc['content_preview'][:100]}...")
+            logger.info(f"   Metadata: {doc['metadata']}")
+
+    # Now create the actual retriever
+    logger.info("🔍 CORE RAG - Creating retriever for main flow...")
     retriever = make_retriever(bot_id, user_id=user_id, tenant_id=tenant_id)
+    
+    # Log retriever configuration
+    retriever_info = retriever.retriever_instance.get_retrieval_info()
+    logger.info(f"🔍 CORE RAG - Retriever configuration:")
+    logger.info(f"   Bot ID: {retriever_info['bot_id']}")
+    logger.info(f"   User ID: {retriever_info['user_id']}")
+    logger.info(f"   User Scope: {retriever_info['user_scope']}")
+    logger.info(f"   Tenant ID: {retriever_info['tenant_id']}")
+    logger.info(f"   Supports native filtering: {retriever_info['supports_native_filtering']}")
+    
     llm = make_llm()
     
     # Try to retrieve relevant documents
     try:
         # Get documents for source tracking
+        logger.info("🔍 CORE RAG - Retrieving documents...")
         if callable(retriever):
             documents = retriever(question)
         else:
             documents = retriever.get_relevant_documents(question)
             
-        logger.info(f"Retrieved {len(documents)} documents for bot {bot_id}")
+        logger.info(f"🔍 CORE RAG - Retrieved {len(documents)} documents")
         
-        # REMOVED: The temporary bypass that was forcing LLM fallback
+        # Log each document found
+        for i, doc in enumerate(documents):
+            logger.info(f"🔍 CORE RAG - Document {i+1}:")
+            logger.info(f"   Content: {doc.page_content[:200]}...")
+            logger.info(f"   Metadata: {doc.metadata}")
+            logger.info(f"   Bot ID in metadata: {doc.metadata.get('bot_id')}")
+            logger.info(f"   User Scope in metadata: {doc.metadata.get('user_scope')}")
         
         # Check if we have sufficient context
-        if not documents or _is_context_insufficient(documents, question):
-            logger.warning(f"Insufficient context for question: {question}")
+        context_sufficient = documents and not _is_context_insufficient(documents, question)
+        logger.info(f"🔍 CORE RAG - Context sufficient: {context_sufficient}")
+        
+        if not context_sufficient:
+            logger.warning(f"🔍 CORE RAG - Insufficient context for question: {question}")
+            logger.info(f"   Documents available: {len(documents)}")
+            if documents:
+                logger.info(f"   Document content samples:")
+                for i, doc in enumerate(documents):
+                    logger.info(f"     Doc {i}: {doc.page_content[:100]}...")
+            
             if fallback_to_llm:
-                logger.info("Falling back to general knowledge due to insufficient context")
+                logger.info("🔍 CORE RAG - Falling back to general knowledge due to insufficient context")
                 result = _answer_with_llm_only(llm, question, system_message)
                 return {
                     "answer": result,
@@ -207,6 +257,7 @@ async def answer_query(
                 }
         
         # Normal RAG flow with actual documents
+        logger.info("🔍 CORE RAG - Proceeding with RAG flow using retrieved documents")
         prompt = build_prompt(system_message)
         chain = build_chain(llm, prompt, retriever)
         answer = chain.invoke({"question": question})
@@ -236,6 +287,11 @@ async def answer_query(
                 for doc in documents
             ]
         
+        logger.info(f"🔍 CORE RAG - RAG flow completed successfully")
+        logger.info(f"   Answer length: {len(answer)}")
+        logger.info(f"   Sources: {sources}")
+        logger.info(f"   Document count: {len(documents)}")
+        
         return {
             "answer": answer,
             "sources": sources,
@@ -245,8 +301,9 @@ async def answer_query(
         }
         
     except Exception as e:
-        logger.error(f"Error in answer_query: {e}")
+        logger.error(f"🔍 CORE RAG - Error in answer_query: {e}")
         if fallback_to_llm:
+            logger.info("🔍 CORE RAG - Falling back to LLM due to error")
             return {
                 "answer": _answer_with_llm_only(llm, question, system_message),
                 "sources": ["general_knowledge"],
@@ -255,7 +312,7 @@ async def answer_query(
                 "fallback_used": True
             }
         raise
-    
+
 # KEEP _answer_with_llm_only but update return handling
 def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
     """Answer using LLM only without RAG context"""
@@ -279,15 +336,15 @@ def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = No
 def _is_context_insufficient(documents: List[Document], question: str) -> bool:
     """Determine if retrieved context is insufficient for the question"""
     if not documents:
+        logger.info("🔍 CONTEXT CHECK - No documents found")
         return True
-        
-    # Simple heuristic: if all documents are very short or don't contain question keywords
-    total_content = " ".join([doc.page_content for doc in documents])
-    question_keywords = set(question.lower().split())
-    content_keywords = set(total_content.lower().split())
     
-    # If less than 30% of question keywords appear in context, consider it insufficient
-    matching_keywords = question_keywords.intersection(content_keywords)
-    match_ratio = len(matching_keywords) / len(question_keywords) if question_keywords else 0
+    logger.info(f"🔍 CONTEXT CHECK - Found {len(documents)} documents, using them")
     
-    return match_ratio < 0.3
+    # For debugging
+    for i, doc in enumerate(documents):
+        logger.info(f"🔍 CONTEXT CHECK - Doc {i} preview: {doc.page_content[:100]}...")
+    
+    # Always try to use the documents we found
+    # Let the LLM decide if they're relevant
+    return False

@@ -1,11 +1,14 @@
 # python/app/routers/evaluate.py - FIX the chat request model
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
+import logging
+from app.models.bot import get_bot_config_with_fallback, get_bot_config_with_jwt  # Add this import
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Request models
 class StartEvaluationRequest(BaseModel):
@@ -47,33 +50,68 @@ async def start_evaluation(request: StartEvaluationRequest):
         messages=[]
     )
     
+    logger.info(f"Started evaluation session: {session_id} for bot: {request.bot_id}")
+    
     return {
         "session_id": session_id,
         "message": "Evaluation session started"
     }
 
 @router.post("/evaluate/chat")
-async def evaluate_chat(request: EvaluateChatRequest):
+async def evaluate_chat(
+    request: EvaluateChatRequest,
+    authorization: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None),
+    x_tenant_id: Optional[str] = Header(None)
+):
     """Send a message in evaluation session"""
     if request.session_id not in evaluation_sessions:
         raise HTTPException(status_code=404, detail="Evaluation session not found")
     
     session = evaluation_sessions[request.session_id]
     
+    # Use headers if provided, otherwise use session data
+    user_id = x_user_id or session.user_id
+    tenant_id = x_tenant_id or session.tenant_id
+    
+    # Extract JWT token from Authorization header
+    jwt_token = None
+    if authorization and authorization.startswith("Bearer "):
+        jwt_token = authorization[7:]
+    
     try:
-        # Use your actual RAG system
         from app.rag.core import answer_query
         
-        # Get bot configuration
-        bot_config = await get_bot_config(request.message.bot_id, session.tenant_id)
+        # Get REAL bot configuration using JWT authentication
+        bot_config = await get_bot_config_with_jwt(
+            request.message.bot_id, 
+            jwt_token,
+            tenant_id
+        )
         
-        # Process through actual RAG system
+        logger.info(f"✅ Bot config fetched: {bot_config.bot_name}")
+        logger.info(f"   System message: {bool(bot_config.system_message)}")
+        
+        # DEBUG: Test retrieval directly
+        from app.rag.retriever import debug_retrieval
+        retrieval_test = debug_retrieval(
+            bot_id=request.message.bot_id,
+            query=request.message.message,
+            user_id=user_id,
+            tenant_id=tenant_id
+        )
+        logger.info(f"🔍 DIRECT RETRIEVAL TEST: {retrieval_test['success']}, docs found: {retrieval_test['documents_found']}")
+        if retrieval_test['success'] and retrieval_test['documents_found'] > 0:
+            for doc in retrieval_test['documents']:
+                logger.info(f"   - Doc: {doc['content_preview'][:100]}...")
+        
+        # Process through actual RAG system with proper bot config
         rag_result = await answer_query(
             bot_id=request.message.bot_id,
-            question=request.message.message,  # Access message from the nested object
-            user_id=session.user_id,
-            tenant_id=session.tenant_id,
-            system_message=bot_config.get("system_message", "You are a helpful AI assistant."),
+            question=request.message.message,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            system_message=bot_config.system_message,
             fallback_to_llm=True,
             include_sources=True
         )
@@ -82,19 +120,21 @@ async def evaluate_chat(request: EvaluateChatRequest):
         user_msg = {
             "id": str(uuid.uuid4()),
             "type": "user",
-            "content": request.message.message,  # Access message from nested object
+            "content": request.message.message,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         bot_msg = {
             "id": str(uuid.uuid4()),
-            "type": "bot",
+            "type": "bot", 
             "content": rag_result.get("answer", "I'm sorry, I couldn't process your question."),
             "sources": rag_result.get("sources", []),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         session.messages.extend([user_msg, bot_msg])
+        
+        logger.info(f"Evaluation chat completed - Response: {rag_result.get('answer', '')[:100]}...")
         
         return {
             "response": bot_msg["content"],
@@ -103,26 +143,11 @@ async def evaluate_chat(request: EvaluateChatRequest):
         }
         
     except Exception as e:
-        print(f"Error in evaluate_chat: {e}")
-        # Return a fallback response instead of raising an exception
+        logger.error(f"Error in evaluate_chat: {e}")
         return {
             "response": "I'm experiencing technical difficulties. Please try again later.",
             "sources": [],
             "session_id": request.session_id
-        }
-
-async def get_bot_config(bot_id: str, tenant_id: str):
-    """Get bot configuration"""
-    try:
-        # If you have a bot management system, use it here
-        from app.models.bot import get_bot_by_id
-        return await get_bot_by_id(bot_id, tenant_id)
-    except ImportError:
-        # Fallback for testing
-        return {
-            "id": bot_id,
-            "tenant_id": tenant_id,
-            "system_message": "You are a helpful AI assistant. Answer questions based on the provided documentation.",
         }
 
 @router.get("/evaluate/session/{session_id}")
@@ -138,5 +163,6 @@ async def end_evaluation(session_id: str):
     """End an evaluation session"""
     if session_id in evaluation_sessions:
         del evaluation_sessions[session_id]
+        logger.info(f"Ended evaluation session: {session_id}")
     
     return {"message": "Evaluation session ended"}
