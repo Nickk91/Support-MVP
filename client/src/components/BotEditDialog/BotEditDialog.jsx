@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription, // Add this import
 } from "@/components/ui/dialog";
 import { useBotWizardStore } from "@/store/botWizardStore";
 import { useUserStore } from "@/store/useUserStore";
@@ -86,11 +87,20 @@ export default function BotEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        aria-label="Bot Edit Dialog"
+        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>
             {isNew ? "Create New Bot" : `Edit ${bot.botName}`}
           </DialogTitle>
+          {/* Add DialogDescription for accessibility */}
+          <DialogDescription className="sr-only">
+            {isNew
+              ? "Create a new AI assistant by filling out the steps below"
+              : `Edit the settings and configuration for ${bot.botName}`}
+          </DialogDescription>
         </DialogHeader>
 
         {/* Step Progress Indicator */}
