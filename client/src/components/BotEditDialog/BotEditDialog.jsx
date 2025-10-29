@@ -193,9 +193,11 @@ export default function BotEditDialog({
           {/* FILE UPLOAD LOADING OVERLAY */}
           {fileUploadLoading && (
             <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg z-10">
-              <div className="text-center p-6 bg-white rounded-lg shadow-lg border">
+              <div className="text-center p-6 bg-card rounded-lg shadow-lg border border-border">
                 <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
-                <h4 className="font-medium mb-1">Processing Files</h4>
+                <h4 className="font-medium mb-1 text-card-foreground">
+                  Processing Files
+                </h4>
                 <p className="text-sm text-muted-foreground">
                   Uploading and ingesting files into knowledge base...
                 </p>

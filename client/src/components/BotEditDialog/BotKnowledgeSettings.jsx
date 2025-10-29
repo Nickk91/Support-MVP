@@ -144,14 +144,16 @@ export default function BotKnowledgeSettings({
                 key={file.storedAs}
                 className={`flex items-center justify-between p-3 border rounded-lg ${
                   file.isNew
-                    ? "bg-green-50 border-green-200"
-                    : "bg-white border-gray-200"
+                    ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/20"
+                    : "border-border bg-background"
                 }`}
               >
                 <div className="flex items-center space-x-3">
                   <FileText
                     className={`h-4 w-4 ${
-                      file.isNew ? "text-green-600" : "text-gray-500"
+                      file.isNew
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-muted-foreground"
                     }`}
                   />
                   <div>
