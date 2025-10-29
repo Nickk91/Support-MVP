@@ -1,18 +1,11 @@
 // client/src/components/EvaluationChat/EvaluationChat.jsx - FIXED
 import { useState, useRef, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { Send, X, Bot, User } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import api from "@/lib/api";
+import ChatHeader from "./ChatHeader";
+import ChatMessagesArea from "./ChatMessagesArea";
+import ChatInput from "./ChatInput";
 
 export default function EvaluationChat({ bot, session, onClose }) {
   const [messages, setMessages] = useState([]);
@@ -21,17 +14,14 @@ export default function EvaluationChat({ bot, session, onClose }) {
   const scrollAreaRef = useRef(null);
 
   useEffect(() => {
-    // FIX: Check if session exists before accessing messages
     if (session?.messages) {
       setMessages(session.messages);
     } else {
-      // Initialize with empty messages if no session data
       setMessages([]);
     }
   }, [session]);
 
   useEffect(() => {
-    // Scroll to bottom when messages change
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
       scrollContainer.scrollTop = scrollContainer.scrollHeight;
@@ -53,7 +43,6 @@ export default function EvaluationChat({ bot, session, onClose }) {
     setLoading(true);
 
     try {
-      // FIX: Check if session exists before using session_id
       if (!session?.session_id) {
         throw new Error("Evaluation session not started properly");
       }
@@ -91,141 +80,24 @@ export default function EvaluationChat({ bot, session, onClose }) {
     }
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
   return (
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
-        <DialogHeader className="flex-row items-center justify-between space-y-0 pb-4">
-          <div>
-            <DialogTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5" />
-              Testing: {bot.botName}
-            </DialogTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {session?.session_id
-                ? "Evaluation session active"
-                : "Starting evaluation session..."}
-            </p>
-          </div>
-        </DialogHeader>
+        <ChatHeader bot={bot} session={session} />
 
-        {/* Chat Messages */}
-        <ScrollArea className="flex-1 pr-4" ref={scrollAreaRef}>
-          <div className="space-y-4 pb-4">
-            {messages.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Start a conversation to test your bot</p>
-                <p className="text-sm">
-                  Ask questions related to your uploaded documents
-                </p>
-              </div>
-            ) : (
-              messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex gap-3 ${
-                    message.type === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  {message.type === "bot" && (
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Bot className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
+        <ChatMessagesArea
+          messages={messages}
+          loading={loading}
+          scrollAreaRef={scrollAreaRef}
+        />
 
-                  <div
-                    className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                      message.type === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-
-                    {/* Sources */}
-                    {message.type === "bot" &&
-                      message.sources &&
-                      message.sources.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-border">
-                          <p className="text-xs text-muted-foreground mb-1">
-                            Sources:
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {message.sources.map((source, index) => (
-                              <Badge
-                                key={index}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                {source}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                    <p className="text-xs opacity-70 mt-1">
-                      {new Date(message.timestamp).toLocaleTimeString()}
-                    </p>
-                  </div>
-
-                  {message.type === "user" && (
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                      <User className="h-4 w-4 text-primary-foreground" />
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-
-            {loading && (
-              <div className="flex gap-3 justify-start">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-primary" />
-                </div>
-                <div className="bg-muted rounded-lg px-4 py-2">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
-                    <div
-                      className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                      style={{ animationDelay: "0.1s" }}
-                    ></div>
-                    <div
-                      className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                      style={{ animationDelay: "0.2s" }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-
-        {/* Input Area */}
-        <div className="flex gap-2 pt-4 border-t">
-          <Input
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type your message..."
-            disabled={loading || !session?.session_id}
-            className="flex-1"
-          />
-          <Button
-            onClick={sendMessage}
-            disabled={!inputMessage.trim() || loading || !session?.session_id}
-            size="icon"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+        <ChatInput
+          inputMessage={inputMessage}
+          setInputMessage={setInputMessage}
+          onSendMessage={sendMessage}
+          loading={loading}
+          sessionActive={!!session?.session_id}
+        />
       </DialogContent>
     </Dialog>
   );
