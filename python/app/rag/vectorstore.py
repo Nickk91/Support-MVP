@@ -363,21 +363,62 @@ def delete_files_from_vectorstore(vectorstore, file_paths: List[str]) -> int:
         ids_to_delete = []
         for i, metadata in enumerate(all_docs['metadatas']):
             if metadata and 'source' in metadata:
-                if metadata['source'] in file_paths:
-                    ids_to_delete.append(all_docs['ids'][i])
-                    deleted_count += 1
+                source_path = metadata['source']
+                
+                # 🎯 CRITICAL FIX: Multiple matching strategies
+                for file_path in file_paths:
+                    # Extract just the filename for comparison
+                    source_filename = source_path.split('/')[-1] if '/' in source_path else source_path
+                    target_filename = file_path.split('/')[-1] if '/' in file_path else file_path
+                    
+                    # Try different matching strategies
+                    if (source_path == file_path or  # Exact match
+                        source_filename == target_filename or  # Filename match
+                        source_path.endswith(file_path) or  # Partial path match
+                        file_path in source_path):  # Substring match
+                        
+                        ids_to_delete.append(all_docs['ids'][i])
+                        deleted_count += 1
+                        print(f"✅ MATCH FOUND: Vector source '{source_path}' matches cleanup file '{file_path}'")
+                        break  # Move to next document once matched
         
         # Delete the matching documents
         if ids_to_delete:
             vectorstore.delete(ids=ids_to_delete)
             print(f"✅ Deleted {len(ids_to_delete)} documents from vector store for files: {file_paths}")
+        else:
+            print(f"⚠️ No matching documents found in vector store for files: {file_paths}")
+            print(f"🔍 Available sources in vector store: {[m.get('source', 'unknown') for m in all_docs['metadatas'] if m]}")
         
         return deleted_count
         
     except Exception as e:
         print(f"❌ Error deleting files from vector store: {e}")
         return 0
-
+def debug_vectorstore_contents(vectorstore, bot_id: str):
+    """
+    Debug function to see what's actually stored in the vector store
+    """
+    try:
+        all_docs = vectorstore.get()
+        
+        if not all_docs or 'metadatas' not in all_docs:
+            print(f"🔍 Vector store for bot {bot_id} is empty or has no metadata")
+            return
+        
+        print(f"🔍 VECTOR STORE CONTENTS FOR BOT {bot_id}:")
+        print(f"Total documents: {len(all_docs.get('ids', []))}")
+        
+        for i, (metadata, doc_id) in enumerate(zip(all_docs['metadatas'], all_docs['ids'])):
+            if metadata:
+                source = metadata.get('source', 'NO_SOURCE')
+                print(f"  Document {i}: ID={doc_id}, Source='{source}'")
+            else:
+                print(f"  Document {i}: ID={doc_id}, Metadata=None")
+                
+    except Exception as e:
+        print(f"❌ Error debugging vector store: {e}")
+    
 def cleanup_pending_deletions():
     """
     Clean up any pending deletions in vector stores
