@@ -5,7 +5,7 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 
 export default function ErrorState({ error, onRefresh, refreshing }) {
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
         <Card className="border-red-200">
           <CardContent className="p-6 text-center">
