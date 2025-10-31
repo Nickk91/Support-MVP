@@ -1,3 +1,5 @@
+//client\src\components\BotEditDialog\LoadingOverlay.jsx
+
 import { RefreshCw } from "lucide-react";
 
 export default function LoadingOverlay({

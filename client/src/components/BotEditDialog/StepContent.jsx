@@ -1,14 +1,16 @@
+// src/components/BotEditDialog/StepContent.jsx
 import BotBasicSettings from "./steps/BotBasicSettings";
-import BotBehaviorSettings from "./steps/BotBehaviorSettings";
+import BotPersonalitySettings from "./steps/BotPersonalitySettings";
+import BotSafetySettings from "./steps/BotSafetySettings";
 import BotKnowledgeSettings from "./steps/BotKnowledgeSettings";
-import BotAdvancedSettings from "./steps/BotAdvancedSettings";
 import LoadingOverlay from "./LoadingOverlay";
 
 const STEP_COMPONENTS = {
   basic: BotBasicSettings,
-  behavior: BotBehaviorSettings,
+  personality: BotPersonalitySettings,
+  safety: BotSafetySettings,
   knowledge: BotKnowledgeSettings,
-  advanced: BotAdvancedSettings,
+  // Removed: advanced
 };
 
 export default function StepContent({

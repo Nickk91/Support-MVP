@@ -8,30 +8,42 @@ import fs from "fs/promises";
 import path from "path";
 import { deleteFileFromS3 } from "../utils/s3Utils.js";
 import pythonService from "../services/pythonService.js";
+import { composeBotConfig } from "../utils/botTemplateComposer.js";
 
-// Create new bot with Python RAG integration
+// 🎯 CREATE BOT - NEW TEMPLATE SYSTEM
 export const createBot = async (req, res) => {
   try {
     const {
       botName,
       model,
+      companyReference, // REQUIRED
+      personalityType = "professional",
+      safetyLevel = "standard",
+      temperature = 0.7,
+      // Custom overrides (optional)
       systemMessage,
+      guardrails,
+      greeting,
       fallback,
       escalation,
-      files,
-      greeting,
-      guardrails,
-      temperature,
+      files = [],
     } = req.body;
 
-    console.log("🤖 Creating bot for user:", req.user.userId);
+    console.log("🤖 Creating bot with new template system:", {
+      botName,
+      companyReference,
+      personalityType,
+      safetyLevel,
+      userId: req.user.userId,
+    });
 
-    // Validation
-    if (!botName || !model) {
+    // 🚨 STRICT VALIDATION - New requirements
+    if (!botName || !model || !companyReference) {
       return res.status(400).json({
         ok: false,
-        error: "missing_fields",
-        message: "Bot name and model are required",
+        error: "missing_required_fields",
+        message: "Bot name, model, and company reference are required",
+        required: ["botName", "model", "companyReference"],
       });
     }
 
@@ -69,17 +81,28 @@ export const createBot = async (req, res) => {
       uploadedBy: req.user.userId,
     }));
 
-    const newBot = new Bot({
-      _id: botId,
+    // 🎯 COMPOSE COMPLETE BOT CONFIG USING TEMPLATES
+    const formData = {
       botName,
       model,
-      systemMessage: systemMessage || "",
-      fallback: fallback || "",
-      greeting: greeting || "",
-      guardrails: guardrails || "",
-      temperature: temperature || 0.7,
+      temperature,
+      personalityType,
+      safetyLevel,
+      companyReference,
+      systemMessage,
+      guardrails,
+      greeting,
+      fallback,
       escalation: escalation || { enabled: false, escalation_email: "" },
       files: processedFiles,
+    };
+
+    const botConfig = composeBotConfig(formData);
+
+    // 🎯 CREATE BOT WITH NEW STRUCTURE
+    const newBot = new Bot({
+      _id: botId,
+      ...botConfig,
       ownerId: req.user.userId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -87,9 +110,12 @@ export const createBot = async (req, res) => {
 
     await newBot.save();
 
-    console.log("✅ Bot created in MongoDB:", {
+    console.log("✅ Bot created with new template system:", {
       id: botId,
       botName,
+      companyReference,
+      personalityType: botConfig.personalityType, // May be 'custom' if overridden
+      safetyLevel: botConfig.safetyLevel, // May be 'custom' if overridden
       ownerId: req.user.userId,
     });
 
@@ -104,9 +130,9 @@ export const createBot = async (req, res) => {
         {
           bot_id: botId,
           bot_name: botName,
-          system_message: systemMessage,
+          system_message: botConfig.systemMessage, // Use composed system message
           model: model,
-          fallback: fallback,
+          fallback: botConfig.fallback, // Use composed fallback
           owner_id: req.user.userId,
         },
         req.user.userId,
@@ -144,19 +170,22 @@ export const createBot = async (req, res) => {
   }
 };
 
-// Update bot with Python RAG integration
+// 🎯 UPDATE BOT - NEW TEMPLATE SYSTEM
 export const updateBot = async (req, res) => {
   try {
     const {
       botName,
       model,
+      companyReference,
+      personalityType,
+      safetyLevel,
+      temperature,
       systemMessage,
+      guardrails,
+      greeting,
       fallback,
       escalation,
       files,
-      greeting,
-      guardrails,
-      temperature,
     } = req.body;
 
     // Find bot with ownerId security check
@@ -190,23 +219,36 @@ export const updateBot = async (req, res) => {
       }
     }
 
-    // Update bot
-    bot.botName = botName;
-    bot.model = model;
-    bot.systemMessage = systemMessage || "";
-    bot.fallback = fallback || "";
-    bot.greeting = greeting || "";
-    bot.guardrails = guardrails || "";
-    bot.temperature = temperature || 0.7;
-    bot.escalation = escalation || { enabled: false, escalation_email: "" };
-    bot.files = files || [];
+    // 🎯 COMPOSE UPDATED CONFIG USING TEMPLATES
+    const formData = {
+      botName,
+      model,
+      temperature: temperature ?? bot.temperature,
+      personalityType: personalityType ?? bot.personalityType,
+      safetyLevel: safetyLevel ?? bot.safetyLevel,
+      companyReference: companyReference ?? bot.companyReference,
+      systemMessage: systemMessage ?? bot.systemMessage,
+      guardrails: guardrails ?? bot.guardrails,
+      greeting: greeting ?? bot.greeting,
+      fallback: fallback ?? bot.fallback,
+      escalation: escalation ?? bot.escalation,
+      files: files ?? bot.files,
+    };
+
+    const botConfig = composeBotConfig(formData);
+
+    // 🎯 UPDATE BOT WITH COMPOSED CONFIGURATION
+    Object.assign(bot, botConfig);
     bot.updatedAt = new Date();
 
     await bot.save();
 
-    console.log("✅ Bot updated in MongoDB:", {
+    console.log("✅ Bot updated with new template system:", {
       id: req.params.id,
       botName,
+      companyReference: botConfig.companyReference,
+      personalityType: botConfig.personalityType,
+      safetyLevel: botConfig.safetyLevel,
       ownerId: req.user.userId,
     });
 
@@ -216,9 +258,9 @@ export const updateBot = async (req, res) => {
         req.params.id,
         {
           bot_name: botName,
-          system_message: systemMessage,
+          system_message: botConfig.systemMessage, // Use composed system message
           model: model,
-          fallback: fallback,
+          fallback: botConfig.fallback, // Use composed fallback
         },
         req.user.userId,
         req.user.tenantId
@@ -296,6 +338,84 @@ export const getBot = async (req, res) => {
       ok: false,
       error: "server_error",
       message: "Failed to fetch bot",
+    });
+  }
+};
+
+// 🎯 CLEANUP ALL LEGACY BOTS (One-time migration)
+export const cleanupLegacyBots = async (req, res) => {
+  try {
+    console.log("🧹 CLEANING UP ALL LEGACY BOTS");
+
+    // Delete all bots that don't have the new required fields
+    const legacyBots = await Bot.find({
+      $or: [
+        { companyReference: { $exists: false } },
+        { personalityType: { $exists: false } },
+        { safetyLevel: { $exists: false } },
+      ],
+    });
+
+    console.log(`🗑️ Found ${legacyBots.length} legacy bots to delete`);
+
+    let deletedCount = 0;
+    const deletionResults = [];
+
+    for (const bot of legacyBots) {
+      try {
+        // Cleanup files from S3
+        for (const file of bot.files) {
+          if (file.s3Key) {
+            try {
+              await deleteFileFromS3(file.s3Key);
+            } catch (error) {
+              console.warn(
+                `Failed to delete S3 file ${file.s3Key}:`,
+                error.message
+              );
+            }
+          }
+        }
+
+        // Cleanup database records
+        await Chunk.deleteMany({ bot_id: bot._id });
+        await Document.deleteMany({ bot_id: bot._id });
+
+        // Delete bot
+        await Bot.deleteOne({ _id: bot._id });
+
+        deletedCount++;
+        deletionResults.push({
+          botId: bot._id,
+          botName: bot.botName,
+          status: "deleted",
+        });
+
+        console.log(`✅ Deleted legacy bot: ${bot.botName}`);
+      } catch (error) {
+        deletionResults.push({
+          botId: bot._id,
+          botName: bot.botName,
+          status: "error",
+          error: error.message,
+        });
+        console.error(`❌ Failed to delete legacy bot ${bot.botName}:`, error);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: `Legacy cleanup completed. ${deletedCount} bots deleted.`,
+      totalLegacyBots: legacyBots.length,
+      deletedCount,
+      results: deletionResults,
+    });
+  } catch (error) {
+    console.error("❌ Legacy cleanup error:", error);
+    res.status(500).json({
+      ok: false,
+      error: "legacy_cleanup_failed",
+      message: "Failed to cleanup legacy bots",
     });
   }
 };

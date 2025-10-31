@@ -9,62 +9,21 @@ import {
 } from "@/components/ui/select";
 import { AI_MODELS } from "@/config/models";
 
+// src/components/BotEditDialog/steps/BotAdvancedSettings.jsx
+// This file can be empty or removed, or you can add other advanced settings later
 export default function BotAdvancedSettings({ bot, onChange }) {
-  const handleModelChange = (value) => {
-    onChange({ model: value });
-  };
-
-  const handleTemperatureChange = (e) => {
-    onChange({ temperature: parseFloat(e.target.value) });
-  };
-
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="model">AI Model</Label>
-        <Select
-          value={bot?.model || AI_MODELS[0].value}
-          onValueChange={handleModelChange}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select a model" />
-          </SelectTrigger>
-          <SelectContent>
-            {AI_MODELS.map((model) => (
-              <SelectItem key={model.value} value={model.value}>
-                {model.label}{" "}
-                <span className="text-muted-foreground">
-                  {" "}
-                  - {model.description}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="text-center p-8 border rounded-lg">
+        <h3 className="text-lg font-semibold mb-2">Advanced Settings</h3>
         <p className="text-sm text-muted-foreground">
-          Choose the AI model that powers your bot.
+          Additional advanced configuration options will be added here in the
+          future.
         </p>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="temperature">
-          Temperature: {bot?.temperature || 0.7}
-        </Label>
-        <input
-          type="range"
-          id="temperature"
-          min="0"
-          max="1"
-          step="0.1"
-          value={bot?.temperature || 0.7}
-          onChange={handleTemperatureChange}
-          className="w-full"
-        />
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>More focused</span>
-          <span>Balanced</span>
-          <span>More creative</span>
-        </div>
+        <p className="text-sm text-muted-foreground mt-2">
+          Model selection and temperature settings have been moved to Basic and
+          Personality steps.
+        </p>
       </div>
     </div>
   );

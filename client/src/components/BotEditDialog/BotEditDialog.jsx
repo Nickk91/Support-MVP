@@ -1,11 +1,11 @@
-//client\src\components\BotEditDialog\BotEditDialog.jsx
+// src/components/BotEditDialog/BotEditDialog.jsx
 import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription, // Add this import
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { useBotWizardStore } from "@/store/botWizardStore";
 import { useUserStore } from "@/store/useUserStore";
@@ -14,11 +14,12 @@ import StepContent from "./StepContent";
 import NavigationButtons from "./NavigationButtons";
 import LoadingOverlay from "./LoadingOverlay";
 
+// UPDATED: Removed "advanced" step
 const STEPS = [
   { id: "basic", label: "Basic Info" },
-  { id: "behavior", label: "Behavior" },
+  { id: "personality", label: "Personality" },
+  { id: "safety", label: "Safety" },
   { id: "knowledge", label: "Knowledge" },
-  { id: "advanced", label: "Advanced" },
 ];
 
 export default function BotEditDialog({
@@ -46,7 +47,15 @@ export default function BotEditDialog({
   // Initialize store with existing bot data when editing
   useEffect(() => {
     if (open && bot) {
-      updateFormData(bot);
+      const updatedFormData = { ...bot };
+
+      // If the bot doesn't have template fields (legacy bot), set defaults
+      if (!bot.personalityType) {
+        updatedFormData.personalityType = "professional";
+        updatedFormData.safetyLevel = "standard";
+      }
+
+      updateFormData(updatedFormData);
     }
   }, [open, bot, updateFormData]);
 
@@ -90,13 +99,12 @@ export default function BotEditDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         aria-label="Bot Edit Dialog"
-        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="max-w-2xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto"
       >
-        <DialogHeader>
+        <DialogHeader className="px-1 sm:px-0">
           <DialogTitle>
             {isNew ? "Create New Bot" : `Edit ${bot.botName}`}
           </DialogTitle>
-          {/* Add DialogDescription for accessibility */}
           <DialogDescription className="sr-only">
             {isNew
               ? "Create a new AI assistant by filling out the steps below"
