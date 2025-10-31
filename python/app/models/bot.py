@@ -17,7 +17,7 @@ class BotConfig:
         self.fallback = bot_data.get('fallback')
         self.greeting = bot_data.get('greeting') 
         self.guardrails = bot_data.get('guardrails')
-        self.temperature = bot_data.get('temperature', 0.1)
+        self.temperature = bot_data.get('temperature', 0.7)
         self.files = bot_data.get('files', [])
         self.owner_id = bot_data.get('ownerId')
         
@@ -98,7 +98,7 @@ async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str
         'botName': f'Bot {bot_id}',
         'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
         'model': 'gpt-4o-mini',
-        'temperature': 0.1
+        'temperature': 0.7
     })
 
 async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optional[BotConfig]:
@@ -166,5 +166,5 @@ async def get_bot_config_with_jwt(bot_id: str, jwt_token: str, tenant_id: str) -
         'botName': f'Bot {bot_id}',
         'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
         'model': 'gpt-4o-mini',
-        'temperature': 0.1
+        'temperature': 0.7
     })
