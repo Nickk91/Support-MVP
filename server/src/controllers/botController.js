@@ -77,7 +77,7 @@ export const createBot = async (req, res) => {
       fallback: fallback || "",
       greeting: greeting || "",
       guardrails: guardrails || "",
-      temperature: temperature || 0.1,
+      temperature: temperature || 0.7,
       escalation: escalation || { enabled: false, escalation_email: "" },
       files: processedFiles,
       ownerId: req.user.userId,
@@ -197,7 +197,7 @@ export const updateBot = async (req, res) => {
     bot.fallback = fallback || "";
     bot.greeting = greeting || "";
     bot.guardrails = guardrails || "";
-    bot.temperature = temperature || 0.1;
+    bot.temperature = temperature || 0.7;
     bot.escalation = escalation || { enabled: false, escalation_email: "" };
     bot.files = files || [];
     bot.updatedAt = new Date();

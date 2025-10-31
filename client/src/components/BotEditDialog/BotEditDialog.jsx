@@ -1,3 +1,4 @@
+//client\src\components\BotEditDialog\BotEditDialog.jsx
 import { useState, useEffect } from "react";
 import {
   Dialog,

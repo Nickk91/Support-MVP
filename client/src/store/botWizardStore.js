@@ -6,6 +6,7 @@ export const useBotWizardStore = create((set, get) => ({
   formData: {
     botName: "",
     model: "gpt-4o-mini",
+    temperature: 0.7,
     systemMessage: "",
     fallback: "",
     escalation: { enabled: false, escalation_email: "" },

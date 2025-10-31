@@ -48,7 +48,7 @@ export default function BotAdvancedSettings({ bot, onChange }) {
 
       <div className="space-y-2">
         <Label htmlFor="temperature">
-          Temperature: {bot?.temperature || 0.1}
+          Temperature: {bot?.temperature || 0.7}
         </Label>
         <input
           type="range"
@@ -56,7 +56,7 @@ export default function BotAdvancedSettings({ bot, onChange }) {
           min="0"
           max="1"
           step="0.1"
-          value={bot?.temperature || 0.1}
+          value={bot?.temperature || 0.7}
           onChange={handleTemperatureChange}
           className="w-full"
         />
