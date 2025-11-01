@@ -17,12 +17,11 @@ import { useState, useEffect } from "react";
 import { templateService } from "@/services/templateService";
 
 export default function BotSafetySettings({ bot, onChange }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [safetyTemplates, setSafetyTemplates] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedSafety, setSelectedSafety] = useState("standard");
 
-  // Fetch templates on component mount
+  // Fetch templates only once on component mount
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
@@ -30,12 +29,10 @@ export default function BotSafetySettings({ bot, onChange }) {
         const templates = await templateService.getSafetyTemplates();
         setSafetyTemplates(templates);
 
-        // Determine current safety level after templates are loaded
-        const currentSafety = getCurrentSafety(templates);
-        setSelectedSafety(currentSafety);
+        // Set initial safety level from bot data, default to standard
+        setSelectedSafety(bot?.safetyLevel || "standard");
       } catch (error) {
         console.error("Failed to fetch safety templates:", error);
-        // Fallback to empty object to prevent crashes
         setSafetyTemplates({});
       } finally {
         setLoading(false);
@@ -44,28 +41,6 @@ export default function BotSafetySettings({ bot, onChange }) {
 
     fetchTemplates();
   }, []);
-
-  const getCurrentSafety = (templates = safetyTemplates) => {
-    if (!bot?.guardrails || Object.keys(templates).length === 0) {
-      return "standard";
-    }
-
-    const guardrails = bot.guardrails;
-
-    for (const [key, template] of Object.entries(templates)) {
-      if (!template.guardrails) continue;
-
-      // Extract the first line of the template for comparison
-      const templateCore = template.guardrails.split("\n")[0].trim();
-
-      // Check if the current guardrails contain the template core
-      if (guardrails.includes(templateCore)) {
-        return key;
-      }
-    }
-
-    return "custom";
-  };
 
   const handleChange = (field, value) => {
     onChange({ [field]: value });
@@ -80,14 +55,22 @@ export default function BotSafetySettings({ bot, onChange }) {
     });
   };
 
+  const handleGuardrailsChange = (value) => {
+    handleChange("guardrails", value);
+  };
+
   const handleSafetyChange = (safetyKey) => {
     setSelectedSafety(safetyKey);
+
     const template = safetyTemplates[safetyKey];
 
-    if (template && safetyKey !== "custom") {
+    if (template) {
       handleChange("guardrails", template.guardrails);
       handleChange("fallback", template.fallback);
     }
+
+    // Always set the safetyLevel to the selected key
+    handleChange("safetyLevel", safetyKey);
   };
 
   if (loading) {
@@ -113,111 +96,87 @@ export default function BotSafetySettings({ bot, onChange }) {
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg">Safety & Boundaries</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                Set rules to keep your bot safe and compliant
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-2"
-            >
-              <Edit3 className="h-4 w-4" />
-              {showAdvanced ? "Hide Advanced" : "Advanced"}
-              {showAdvanced ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+          <CardTitle className="text-lg">Safety & Boundaries</CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            Set rules to keep your bot safe and compliant
+          </p>
         </CardHeader>
-        <CardContent>
-          {!showAdvanced ? (
-            /* Template Selection View */
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(safetyTemplates).map(([key, template]) => (
-                <Card
-                  key={key}
-                  className={`cursor-pointer transition-all hover:border-primary/50 ${
-                    selectedSafety === key ? "border-primary bg-primary/5" : ""
-                  }`}
-                  onClick={() => handleSafetyChange(key)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{template.icon}</span>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-sm">{template.name}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {template.description}
-                        </p>
-                      </div>
+        <CardContent className="space-y-4">
+          {/* Template Selection */}
+          <div className="flex items-center gap-4">
+            <Label className="font-medium whitespace-nowrap">
+              Safety Template:
+            </Label>
+            <Select value={selectedSafety} onValueChange={handleSafetyChange}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(safetyTemplates).map(([key, template]) => (
+                  <SelectItem key={key} value={key}>
+                    {template.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Template Cards for quick selection */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Object.entries(safetyTemplates).map(([key, template]) => (
+              <Card
+                key={key}
+                className={`cursor-pointer transition-all hover:border-primary/50 ${
+                  selectedSafety === key ? "border-primary bg-primary/5" : ""
+                }`}
+                onClick={() => handleSafetyChange(key)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{template.icon}</span>
+                    <div className="flex-1">
+                      <h4 className="font-medium text-sm">{template.name}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {template.description}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            /* Advanced Editor View */
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <Label className="font-medium whitespace-nowrap">
-                  Start with template:
-                </Label>
-                <Select
-                  value={selectedSafety}
-                  onValueChange={handleSafetyChange}
-                >
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(safetyTemplates).map(([key, template]) => (
-                      <SelectItem key={key} value={key}>
-                        {template.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
 
-              <div className="space-y-3">
-                <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
-                <Textarea
-                  id="guardrails"
-                  value={bot?.guardrails || ""}
-                  onChange={(e) => handleChange("guardrails", e.target.value)}
-                  placeholder="Rules and restrictions to keep your bot safe and on-brand..."
-                  rows={6}
-                  className="font-mono text-sm resize-vertical"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Rules and restrictions to keep your bot safe and on-brand
-                </p>
-              </div>
+          {/* Guardrails Editor (always visible) */}
+          <div className="space-y-3">
+            <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
+            <Textarea
+              id="guardrails"
+              value={bot?.guardrails || ""}
+              onChange={(e) => handleGuardrailsChange(e.target.value)}
+              placeholder="Rules and restrictions to keep your bot safe and on-brand..."
+              rows={6}
+              className="font-mono text-sm resize-vertical"
+            />
+            <p className="text-sm text-muted-foreground">
+              Rules and restrictions to keep your bot safe and on-brand
+            </p>
+          </div>
 
-              <div className="space-y-3">
-                <Label htmlFor="fallback">Fallback Response</Label>
-                <Textarea
-                  id="fallback"
-                  value={bot?.fallback || ""}
-                  onChange={(e) => handleChange("fallback", e.target.value)}
-                  placeholder="What to say when the bot doesn't know the answer..."
-                  rows={3}
-                  className="font-mono text-sm resize-vertical"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Response when the bot cannot answer a question
-                </p>
-              </div>
-            </div>
-          )}
+          {/* Fallback Response Editor (always visible) */}
+          <div className="space-y-3">
+            <Label htmlFor="fallback">Fallback Response</Label>
+            <Textarea
+              id="fallback"
+              value={bot?.fallback || ""}
+              onChange={(e) => handleChange("fallback", e.target.value)}
+              placeholder="What to say when the bot doesn't know the answer..."
+              rows={3}
+              className="font-mono text-sm resize-vertical"
+            />
+            <p className="text-sm text-muted-foreground">
+              Response when the bot cannot answer a question
+            </p>
+          </div>
         </CardContent>
       </Card>
 
