@@ -404,6 +404,7 @@ class PythonService {
   /**
    * Send message in evaluation session
    */
+  // server/services/pythonService.js - UPDATE evaluateChat method
   async evaluateChat(
     sessionId,
     message,
@@ -416,7 +417,7 @@ class PythonService {
       "X-User-ID": userId,
     };
 
-    // PASS THE JWT TOKEN TO PYTHON SERVICE
+    // 🎯 CRITICAL: PASS THE JWT TOKEN TO PYTHON SERVICE
     if (userJwt) {
       headers["Authorization"] = userJwt; // Pass the full "Bearer <token>" string
     }
@@ -437,6 +438,7 @@ class PythonService {
       hasJwt: !!userJwt,
       userId: userId,
       botId: botId,
+      jwtPrefix: userJwt?.substring(0, 20) + "...",
     });
 
     return this.request("POST", "/api/evaluate/chat", data, headers);
