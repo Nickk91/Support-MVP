@@ -150,8 +150,7 @@ def ingest_files(
     return len(chunks)
 
 
-
-# python/app/rag/core.py - FIX the answer_query function
+# python/app/rag/core.py - UPDATE answer_query function
 async def answer_query(
     bot_id: str,
     question: str,
@@ -159,56 +158,33 @@ async def answer_query(
     user_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
     system_message: Optional[str] = None,
+    model: Optional[str] = None,  # 🎯 NEW: Model from template
+    temperature: Optional[float] = None,  # 🎯 NEW: Temperature from template
     fallback_to_llm: bool = True,
     include_sources: bool = False
 ) -> Dict[str, Any]:
     
-    logger.info(f"🔍 CORE RAG - Starting query for bot {bot_id}, user {user_id}, tenant {tenant_id}")
+    logger.info(f"🔍 CORE RAG - Starting query for bot {bot_id}")
+    logger.info(f"🎯 Template params - Model: {model}, Temperature: {temperature}")
     
     system_message = system_message or (
         "You are a concise support assistant. Use ONLY the provided context. "
         "If the answer is not in the context, say you don't know."
     )
 
-    # Build components with DEBUGGING
-    from app.rag.retriever import make_retriever, debug_retrieval
+    # Build components
+    from app.rag.retriever import make_retriever
     
-    # Test retrieval directly first to see if it works
-    logger.info("🔍 CORE RAG - Testing retrieval directly...")
-    retrieval_test = debug_retrieval(
-        bot_id=bot_id,
-        query=question,
-        user_id=user_id,
-        tenant_id=tenant_id
-    )
-    logger.info(f"🔍 CORE RAG - Direct retrieval test result:")
-    logger.info(f"   Success: {retrieval_test['success']}")
-    logger.info(f"   Documents found: {retrieval_test['documents_found']}")
-    logger.info(f"   Retriever info: {retrieval_test.get('retriever_info', {})}")
-    
-    if retrieval_test['success'] and retrieval_test['documents_found'] > 0:
-        for i, doc in enumerate(retrieval_test['documents']):
-            logger.info(f"   Doc {i+1}: {doc['content_preview'][:100]}...")
-            logger.info(f"   Metadata: {doc['metadata']}")
-
-    # Now create the actual retriever
-    logger.info("🔍 CORE RAG - Creating retriever for main flow...")
+    # Create retriever
+    logger.info("🔍 CORE RAG - Creating retriever...")
     retriever = make_retriever(bot_id, user_id=user_id, tenant_id=tenant_id)
     
-    # Log retriever configuration
-    retriever_info = retriever.retriever_instance.get_retrieval_info()
-    logger.info(f"🔍 CORE RAG - Retriever configuration:")
-    logger.info(f"   Bot ID: {retriever_info['bot_id']}")
-    logger.info(f"   User ID: {retriever_info['user_id']}")
-    logger.info(f"   User Scope: {retriever_info['user_scope']}")
-    logger.info(f"   Tenant ID: {retriever_info['tenant_id']}")
-    logger.info(f"   Supports native filtering: {retriever_info['supports_native_filtering']}")
-    
-    llm = make_llm()
+    # 🎯 CREATE LLM WITH TEMPLATE PARAMETERS
+    from app.rag.llm import make_llm
+    llm = make_llm(model=model, temperature=temperature)  # 🎯 Pass template params
     
     # Try to retrieve relevant documents
     try:
-        # Get documents for source tracking
         logger.info("🔍 CORE RAG - Retrieving documents...")
         if callable(retriever):
             documents = retriever(question)
@@ -217,28 +193,15 @@ async def answer_query(
             
         logger.info(f"🔍 CORE RAG - Retrieved {len(documents)} documents")
         
-        # Log each document found
-        for i, doc in enumerate(documents):
-            logger.info(f"🔍 CORE RAG - Document {i+1}:")
-            logger.info(f"   Content: {doc.page_content[:200]}...")
-            logger.info(f"   Metadata: {doc.metadata}")
-            logger.info(f"   Bot ID in metadata: {doc.metadata.get('bot_id')}")
-            logger.info(f"   User Scope in metadata: {doc.metadata.get('user_scope')}")
-        
         # Check if we have sufficient context
         context_sufficient = documents and not _is_context_insufficient(documents, question)
         logger.info(f"🔍 CORE RAG - Context sufficient: {context_sufficient}")
         
         if not context_sufficient:
             logger.warning(f"🔍 CORE RAG - Insufficient context for question: {question}")
-            logger.info(f"   Documents available: {len(documents)}")
-            if documents:
-                logger.info(f"   Document content samples:")
-                for i, doc in enumerate(documents):
-                    logger.info(f"     Doc {i}: {doc.page_content[:100]}...")
             
             if fallback_to_llm:
-                logger.info("🔍 CORE RAG - Falling back to general knowledge due to insufficient context")
+                logger.info("🔍 CORE RAG - Falling back to general knowledge")
                 result = _answer_with_llm_only(llm, question, system_message)
                 return {
                     "answer": result,
@@ -257,7 +220,8 @@ async def answer_query(
                 }
         
         # Normal RAG flow with actual documents
-        logger.info("🔍 CORE RAG - Proceeding with RAG flow using retrieved documents")
+        logger.info("🔍 CORE RAG - Proceeding with RAG flow")
+        from app.rag.pipeline import build_prompt, build_chain
         prompt = build_prompt(system_message)
         chain = build_chain(llm, prompt, retriever)
         answer = chain.invoke({"question": question})
@@ -288,9 +252,6 @@ async def answer_query(
             ]
         
         logger.info(f"🔍 CORE RAG - RAG flow completed successfully")
-        logger.info(f"   Answer length: {len(answer)}")
-        logger.info(f"   Sources: {sources}")
-        logger.info(f"   Document count: {len(documents)}")
         
         return {
             "answer": answer,

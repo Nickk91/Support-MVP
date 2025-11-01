@@ -1,13 +1,36 @@
 # python/app/models/bot.py
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import requests
 import logging
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+class PersonalityType(str, Enum):
+    FRIENDLY = "friendly"
+    PROFESSIONAL = "professional" 
+    TECHNICAL = "technical"
+    CUSTOM = "custom"
+
+class SafetyLevel(str, Enum):
+    LENIENT = "lenient"
+    STANDARD = "standard"
+    STRICT = "strict"
+    CUSTOM = "custom"
+
+class BrandTier(str, Enum):
+    BASIC = "basic"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+
+class VerificationStatus(str, Enum):
+    UNVERIFIED = "unverified"
+    PENDING = "pending"
+    VERIFIED = "verified"
+
 class BotConfig:
-    """Bot configuration fetched from Express server"""
+    """Bot configuration fetched from Express server with template system support"""
     
     def __init__(self, bot_data: Dict[str, Any]):
         self.id = bot_data.get('_id') or bot_data.get('id')
@@ -21,6 +44,31 @@ class BotConfig:
         self.files = bot_data.get('files', [])
         self.owner_id = bot_data.get('ownerId')
         
+        # 🎯 NEW TEMPLATE SYSTEM FIELDS
+        self.company_reference = bot_data.get('companyReference', self.bot_name)
+        self.personality_type = bot_data.get('personalityType', 'professional')
+        self.safety_level = bot_data.get('safetyLevel', 'standard')
+        
+        # 🎯 BRAND SYSTEM
+        self.brand_context = bot_data.get('brandContext', {})
+        self.current_brand = bot_data.get('currentBrand', {})
+        
+        # 🎯 ENSURE BACKWARD COMPATIBILITY
+        if not self.brand_context:
+            self.brand_context = {
+                'primaryCompany': self.company_reference,
+                'verifiedBrands': [],
+                'customBrands': [],
+                'tier': 'basic',
+                'verificationStatus': 'unverified'
+            }
+        
+        if not self.current_brand:
+            self.current_brand = {
+                'type': 'primary',
+                'reference': self.company_reference
+            }
+        
     def to_dict(self):
         """Convert to dictionary for compatibility"""
         return {
@@ -31,7 +79,23 @@ class BotConfig:
             "temperature": self.temperature,
             "fallback": self.fallback,
             "greeting": self.greeting,
-            "guardrails": self.guardrails
+            "guardrails": self.guardrails,
+            # 🎯 NEW TEMPLATE FIELDS
+            "company_reference": self.company_reference,
+            "personality_type": self.personality_type,
+            "safety_level": self.safety_level,
+            "brand_context": self.brand_context,
+            "current_brand": self.current_brand
+        }
+    
+    def get_template_info(self) -> Dict[str, str]:
+        """Get template information for logging and debugging"""
+        return {
+            "personality": self.personality_type,
+            "safety": self.safety_level,
+            "company": self.company_reference,
+            "is_custom_personality": self.personality_type == "custom",
+            "is_custom_safety": self.safety_level == "custom"
         }
 
 async def get_bot_by_id(bot_id: str, tenant_id: str, user_id: str = None) -> Optional[BotConfig]:
@@ -66,8 +130,15 @@ async def get_bot_by_id(bot_id: str, tenant_id: str, user_id: str = None) -> Opt
         
         if response.status_code == 200:
             bot_data = response.json()
-            logger.info(f"✅ Successfully fetched bot: {bot_data.get('botName')}")
-            return BotConfig(bot_data)
+            if bot_data.get('ok'):
+                bot_config = BotConfig(bot_data['bot'])
+                template_info = bot_config.get_template_info()
+                logger.info(f"✅ Successfully fetched bot: {bot_config.bot_name}")
+                logger.info(f"🎯 Template config: {template_info}")
+                return bot_config
+            else:
+                logger.warning(f"❌ Response not OK: {bot_data}")
+                return None
         else:
             logger.warning(f"❌ Failed to fetch bot config: {response.status_code}")
             try:
@@ -80,7 +151,6 @@ async def get_bot_by_id(bot_id: str, tenant_id: str, user_id: str = None) -> Opt
     except Exception as e:
         logger.error(f"💥 Error fetching bot config: {e}")
         return None
-    
 
 async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str = None) -> BotConfig:
     """
@@ -91,16 +161,20 @@ async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str
     if bot_config:
         return bot_config
     
-    # Fallback configuration
+    # Fallback configuration with template system defaults
     logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
     return BotConfig({
         'id': bot_id,
         'botName': f'Bot {bot_id}',
         'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
         'model': 'gpt-4o-mini',
-        'temperature': 0.7
+        'temperature': 0.7,
+        'companyReference': f'Bot {bot_id}',
+        'personalityType': 'professional',
+        'safetyLevel': 'standard'
     })
 
+# python/app/models/bot.py - UPDATE get_bot_by_jwt function
 async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optional[BotConfig]:
     """
     Fetch bot configuration from Express server using user's JWT
@@ -111,16 +185,16 @@ async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optiona
         logger.info(f"🔍 Fetching bot config with JWT: {express_url}/api/bots/{bot_id}")
         logger.info(f"   JWT token present: {jwt_token is not None}")
         if jwt_token:
-            logger.info(f"   JWT token: {jwt_token[:50]}...")
+            logger.info(f"   JWT token format: {'Bearer' in jwt_token}")
         
         headers = {
             'X-Tenant-ID': tenant_id,
             'Content-Type': 'application/json',
         }
         
-        # Add the full Authorization header as received
+        # 🎯 CRITICAL FIX: Add the full Authorization header as received
         if jwt_token:
-            headers['Authorization'] = jwt_token  # This should be "Bearer <token>"
+            headers['Authorization'] = jwt_token
         
         response = requests.get(
             f"{express_url}/api/bots/{bot_id}",
@@ -134,10 +208,19 @@ async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optiona
             response_data = response.json()
             if response_data.get('ok'):
                 bot_data = response_data['bot']
-                logger.info(f"✅ Successfully fetched bot: {bot_data.get('botName')}")
-                return BotConfig(bot_data)
+                bot_config = BotConfig(bot_data)
+                template_info = bot_config.get_template_info()
+                logger.info(f"✅ Successfully fetched bot: {bot_config.bot_name}")
+                logger.info(f"🎯 Template config: {template_info}")
+                return bot_config
             else:
                 logger.warning(f"❌ Response not OK: {response_data}")
+                return None
+        elif response.status_code == 401:
+            logger.warning(f"❌ Authentication failed (401) for bot {bot_id}")
+            logger.warning(f"   Headers sent: { {k: v for k, v in headers.items() if k != 'Authorization'} }")
+            logger.warning(f"   Response: {response.text[:200]}")
+            return None
         else:
             logger.warning(f"❌ Failed to fetch bot config: {response.status_code}")
             try:
@@ -150,6 +233,7 @@ async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optiona
     except Exception as e:
         logger.error(f"💥 Error fetching bot config: {e}")
         return None
+    
 async def get_bot_config_with_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> BotConfig:
     """
     Get bot config with JWT authentication
@@ -159,12 +243,15 @@ async def get_bot_config_with_jwt(bot_id: str, jwt_token: str, tenant_id: str) -
     if bot_config:
         return bot_config
     
-    # Fallback configuration
+    # Fallback configuration with template system defaults
     logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
     return BotConfig({
         'id': bot_id,
         'botName': f'Bot {bot_id}',
         'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
         'model': 'gpt-4o-mini',
-        'temperature': 0.7
+        'temperature': 0.7,
+        'companyReference': f'Bot {bot_id}',
+        'personalityType': 'professional',
+        'safetyLevel': 'standard'
     })

@@ -120,8 +120,11 @@ def get_vectorstore(bot_id: str, backend: str = None) -> object:
     return store_factory(bot_id)
 
 # ---------- Enhanced Vector Store Deletion ----------
+# python/app/rag/vectorstore.py - UPDATE delete_vectorstore function
 def delete_vectorstore(bot_id: str) -> bool:
-    """Delete all vector store data for a specific bot - aggressive Windows compatibility"""
+    """
+    Delete vector store for a bot - always returns True to avoid blocking deletions
+    """
     try:
         backend_name = _resolve_backend_name()
         
@@ -131,31 +134,34 @@ def delete_vectorstore(bot_id: str) -> bool:
                 logger.info(f"ℹ️ No ChromaDB directory found for bot {bot_id}")
                 return True
             
-            # Strategy 1: Try graceful ChromaDB cleanup first
+            # Try graceful cleanup first
             if _try_graceful_chroma_cleanup(bot_id, chroma_dir):
                 return True
             
-            # Strategy 2: Forceful deletion with multiple approaches
+            # Fall back to forceful deletion
             return _force_delete_chroma_directory(bot_id, chroma_dir)
                 
         elif backend_name == "faiss":
             faiss_dir = VECTORDIR / bot_id / "faiss"
             if faiss_dir.exists():
-                shutil.rmtree(faiss_dir)
-                logger.info(f"✅ Deleted FAISS directory: {faiss_dir}")
-                return True
+                try:
+                    shutil.rmtree(faiss_dir)
+                    logger.info(f"✅ Deleted FAISS directory: {faiss_dir}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"⚠️ FAISS directory deletion failed: {e}")
+                    return True  # Still return success
             else:
                 logger.info(f"ℹ️ No FAISS directory found for bot {bot_id}")
                 return True
         else:
             logger.warning(f"⚠️ Unknown backend {backend_name}, cannot cleanup vector store")
-            return False
+            return True  # 🎯 RETURN TRUE TO AVOID BLOCKING
             
     except Exception as e:
         logger.error(f"❌ Failed to delete vector store for bot {bot_id}: {e}")
-        _mark_for_deletion(bot_id)
-        return False
-
+        # 🎯 ALWAYS RETURN TRUE TO AVOID BLOCKING NODE.JS DELETION
+        return True
 def _try_graceful_chroma_cleanup(bot_id: str, chroma_dir: Path) -> bool:
     """Try to gracefully close ChromaDB connections and delete"""
     try:

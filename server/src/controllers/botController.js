@@ -243,7 +243,7 @@ export const updateBot = async (req, res) => {
 
     await bot.save();
 
-    console.log("✅ Bot updated with new template system:", {
+    console.log("✅ Bot updated in MongoDB:", {
       id: req.params.id,
       botName,
       companyReference: botConfig.companyReference,
@@ -254,24 +254,35 @@ export const updateBot = async (req, res) => {
 
     // 🐍 Update bot in Python RAG service using centralized service
     try {
-      await pythonService.updateBot(
+      const pythonResult = await pythonService.updateBot(
         req.params.id,
         {
           bot_name: botName,
-          system_message: botConfig.systemMessage, // Use composed system message
+          system_message: botConfig.systemMessage,
           model: model,
-          fallback: botConfig.fallback, // Use composed fallback
+          fallback: botConfig.fallback,
+          temperature: botConfig.temperature,
+          // 🎯 NEW TEMPLATE FIELDS
+          company_reference: botConfig.companyReference,
+          personality_type: botConfig.personalityType,
+          safety_level: botConfig.safetyLevel,
+          guardrails: botConfig.guardrails,
+          greeting: botConfig.greeting,
         },
         req.user.userId,
         req.user.tenantId
       );
 
-      console.log("✅ Bot updated in Python RAG service");
+      console.log("✅ Bot updated in Python RAG service:", {
+        bot_created: pythonResult.bot_created,
+        fields_updated: pythonResult.fields_updated,
+      });
     } catch (pythonError) {
       console.warn(
-        "⚠️ Bot updated but Python RAG service unavailable:",
+        "⚠️ Bot updated in MongoDB but Python RAG service had issues:",
         pythonError.message
       );
+      // 🎯 DON'T THROW ERROR - JUST LOG AND CONTINUE
     }
 
     res.json({

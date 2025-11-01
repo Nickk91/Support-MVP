@@ -1,4 +1,4 @@
-// server/src/controllers/evaluateController.js - UPDATE to use real Python service
+// server/src/controllers/evaluateController.js - COMPLETE UPDATED VERSION
 import pythonService from "../services/pythonService.js";
 
 // Start evaluation session
@@ -6,26 +6,19 @@ export const startEvaluation = async (req, res) => {
   try {
     const { botId } = req.body;
 
-    // FIX: Use the correct property names from auth middleware
-    const userId = req.user.userId; // Changed from req.user.id
-    const tenantId = req.user.tenantId; // This might also be undefined
+    // Use the correct property names from auth middleware
+    const userId = req.user.userId;
+    const tenantId = req.user.tenantId || "default_tenant";
 
     console.log("🔍 Starting evaluation session with Python backend:", {
       botId,
       userId,
       tenantId,
-      fullUser: req.user, // Log the full user object for debugging
+      fullUser: req.user,
     });
 
-    // If tenantId is undefined, we might need to handle it
-    const effectiveTenantId = tenantId || "default_tenant";
-
     // Use real Python service
-    const result = await pythonService.startEvaluation(
-      botId,
-      userId,
-      effectiveTenantId
-    );
+    const result = await pythonService.startEvaluation(botId, userId, tenantId);
 
     console.log("✅ Evaluation session started:", result);
     res.json(result);
@@ -47,7 +40,6 @@ export const startEvaluation = async (req, res) => {
 };
 
 // Send message in evaluation session
-// Send message in evaluation session
 export const evaluateChat = async (req, res) => {
   try {
     const { sessionId, message, botId } = req.body;
@@ -63,6 +55,7 @@ export const evaluateChat = async (req, res) => {
       botId,
       userId,
       hasJwt: !!userJwt,
+      jwtStartsWithBearer: userJwt?.startsWith("Bearer "),
     });
 
     // Pass the user's JWT to Python service
@@ -78,6 +71,7 @@ export const evaluateChat = async (req, res) => {
     console.log("✅ Evaluation response received:", {
       responseLength: result.response?.length,
       sourcesCount: result.sources?.length,
+      templateInfo: result.template_info,
     });
     res.json(result);
   } catch (error) {
@@ -88,12 +82,19 @@ export const evaluateChat = async (req, res) => {
     });
   }
 };
+
 // Get evaluation session
 export const getEvaluationSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.id;
-    const tenantId = req.user.tenantId;
+    const userId = req.user.userId;
+    const tenantId = req.user.tenantId || "default_tenant";
+
+    console.log("🔍 Getting evaluation session:", {
+      sessionId,
+      userId,
+      tenantId,
+    });
 
     const result = await pythonService.getEvaluationSession(
       sessionId,
@@ -115,8 +116,14 @@ export const getEvaluationSession = async (req, res) => {
 export const endEvaluation = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.id;
-    const tenantId = req.user.tenantId;
+    const userId = req.user.userId;
+    const tenantId = req.user.tenantId || "default_tenant";
+
+    console.log("🔍 Ending evaluation session:", {
+      sessionId,
+      userId,
+      tenantId,
+    });
 
     const result = await pythonService.endEvaluation(
       sessionId,
