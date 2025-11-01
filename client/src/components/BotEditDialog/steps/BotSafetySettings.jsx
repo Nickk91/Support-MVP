@@ -13,24 +13,59 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronDown, ChevronUp, Edit3 } from "lucide-react";
-import { useState } from "react";
-import SAFETY_TEMPLATES from "@/constants/safetyTemplates";
+import { useState, useEffect } from "react";
+import { templateService } from "@/services/templateService";
 
 export default function BotSafetySettings({ bot, onChange }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [safetyTemplates, setSafetyTemplates] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [selectedSafety, setSelectedSafety] = useState("standard");
 
-  const getCurrentSafety = () => {
-    const guardrails = bot?.guardrails || "";
-    for (const [key, template] of Object.entries(SAFETY_TEMPLATES)) {
+  // Fetch templates on component mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        setLoading(true);
+        const templates = await templateService.getSafetyTemplates();
+        setSafetyTemplates(templates);
+
+        // Determine current safety level after templates are loaded
+        const currentSafety = getCurrentSafety(templates);
+        setSelectedSafety(currentSafety);
+      } catch (error) {
+        console.error("Failed to fetch safety templates:", error);
+        // Fallback to empty object to prevent crashes
+        setSafetyTemplates({});
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTemplates();
+  }, []);
+
+  const getCurrentSafety = (templates = safetyTemplates) => {
+    if (!bot?.guardrails || Object.keys(templates).length === 0) {
+      return "standard";
+    }
+
+    const guardrails = bot.guardrails;
+
+    for (const [key, template] of Object.entries(templates)) {
+      if (!template.guardrails) continue;
+
+      // Extract the first line of the template for comparison
       const templateCore = template.guardrails.split("\n")[0].trim();
+
+      // Check if the current guardrails contain the template core
       if (guardrails.includes(templateCore)) {
         return key;
       }
     }
+
     return "custom";
   };
-
-  const [selectedSafety, setSelectedSafety] = useState(getCurrentSafety());
 
   const handleChange = (field, value) => {
     onChange({ [field]: value });
@@ -47,13 +82,32 @@ export default function BotSafetySettings({ bot, onChange }) {
 
   const handleSafetyChange = (safetyKey) => {
     setSelectedSafety(safetyKey);
-    const template = SAFETY_TEMPLATES[safetyKey];
+    const template = safetyTemplates[safetyKey];
 
-    if (safetyKey !== "custom") {
+    if (template && safetyKey !== "custom") {
       handleChange("guardrails", template.guardrails);
       handleChange("fallback", template.fallback);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                <p className="text-sm text-muted-foreground">
+                  Loading safety templates...
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -87,7 +141,7 @@ export default function BotSafetySettings({ bot, onChange }) {
           {!showAdvanced ? (
             /* Template Selection View */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(SAFETY_TEMPLATES).map(([key, template]) => (
+              {Object.entries(safetyTemplates).map(([key, template]) => (
                 <Card
                   key={key}
                   className={`cursor-pointer transition-all hover:border-primary/50 ${
@@ -124,7 +178,7 @@ export default function BotSafetySettings({ bot, onChange }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(SAFETY_TEMPLATES).map(([key, template]) => (
+                    {Object.entries(safetyTemplates).map(([key, template]) => (
                       <SelectItem key={key} value={key}>
                         {template.name}
                       </SelectItem>
@@ -145,6 +199,21 @@ export default function BotSafetySettings({ bot, onChange }) {
                 />
                 <p className="text-sm text-muted-foreground">
                   Rules and restrictions to keep your bot safe and on-brand
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <Label htmlFor="fallback">Fallback Response</Label>
+                <Textarea
+                  id="fallback"
+                  value={bot?.fallback || ""}
+                  onChange={(e) => handleChange("fallback", e.target.value)}
+                  placeholder="What to say when the bot doesn't know the answer..."
+                  rows={3}
+                  className="font-mono text-sm resize-vertical"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Response when the bot cannot answer a question
                 </p>
               </div>
             </div>

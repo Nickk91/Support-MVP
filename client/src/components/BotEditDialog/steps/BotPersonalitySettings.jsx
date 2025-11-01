@@ -12,32 +12,69 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { ChevronDown, ChevronUp, Edit3 } from "lucide-react";
-import { useState } from "react";
-import PERSONALITY_TEMPLATES from "@/constants/personalityTemplates";
+import { useState, useEffect } from "react";
+import { templateService } from "@/services/templateService";
 
 export default function BotPersonalitySettings({ bot, onChange }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [personalityTemplates, setPersonalityTemplates] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [selectedPersonality, setSelectedPersonality] = useState("friendly");
 
-  const getCurrentPersonality = () => {
-    const systemMessage = bot?.systemMessage || "";
-    for (const [key, template] of Object.entries(PERSONALITY_TEMPLATES)) {
+  // Fetch templates on component mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        setLoading(true);
+        const templates = await templateService.getPersonalityTemplates();
+        setPersonalityTemplates(templates);
+
+        // Determine current personality after templates are loaded
+        const currentPersonality = getCurrentPersonality(templates);
+        setSelectedPersonality(currentPersonality);
+      } catch (error) {
+        console.error("Failed to fetch personality templates:", error);
+        // Fallback to empty object to prevent crashes
+        setPersonalityTemplates({});
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTemplates();
+  }, []);
+
+  const getCurrentPersonality = (templates = personalityTemplates) => {
+    if (!bot?.systemMessage || Object.keys(templates).length === 0) {
+      return "friendly";
+    }
+
+    const systemMessage = bot.systemMessage;
+
+    for (const [key, template] of Object.entries(templates)) {
+      if (!template.systemMessage) continue;
+
+      // Extract the core part of the template (before KEY BEHAVIORS)
       const templateCore = template.systemMessage
         .split("KEY BEHAVIORS:")[0]
         .trim();
+
+      // Replace placeholders for comparison
+      const normalizedTemplate = templateCore
+        .replace(/{botName}/g, bot?.botName || "")
+        .replace(/{companyReference}/g, bot?.companyReference || "");
+
+      // Check if the current system message contains the template core
       if (
-        systemMessage.includes(
-          templateCore.replace(/{botName}/g, bot?.botName || "")
-        )
+        systemMessage.includes(normalizedTemplate) ||
+        normalizedTemplate.includes(systemMessage)
       ) {
         return key;
       }
     }
-    return "friendly";
-  };
 
-  const [selectedPersonality, setSelectedPersonality] = useState(
-    getCurrentPersonality()
-  );
+    return "custom";
+  };
 
   const handleChange = (field, value) => {
     onChange({ [field]: value });
@@ -49,18 +86,19 @@ export default function BotPersonalitySettings({ bot, onChange }) {
 
   const handlePersonalityChange = (personalityKey) => {
     setSelectedPersonality(personalityKey);
-    const template = PERSONALITY_TEMPLATES[personalityKey];
+    const template = personalityTemplates[personalityKey];
 
-    if (personalityKey !== "friendly") {
-      const systemMessage = template.systemMessage.replace(
-        /{botName}/g,
-        bot?.botName || "YourBot"
-      );
+    if (template && personalityKey !== "custom") {
+      const systemMessage = template.systemMessage
+        .replace(/{botName}/g, bot?.botName || "YourBot")
+        .replace(/{companyReference}/g, bot?.companyReference || "our company");
+
+      const greeting = template.greeting
+        .replace(/{botName}/g, bot?.botName || "YourBot")
+        .replace(/{companyReference}/g, bot?.companyReference || "our company");
+
       handleChange("systemMessage", systemMessage);
-      handleChange(
-        "greeting",
-        template.greeting.replace(/{botName}/g, bot?.botName || "YourBot")
-      );
+      handleChange("greeting", greeting);
     }
   };
 
@@ -69,6 +107,25 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     if (temp <= 0.6) return "Balanced";
     return "More Creative";
   };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                <p className="text-sm text-muted-foreground">
+                  Loading personality templates...
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -102,7 +159,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
           {!showAdvanced ? (
             /* Template Selection View */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(PERSONALITY_TEMPLATES).map(([key, template]) => (
+              {Object.entries(personalityTemplates).map(([key, template]) => (
                 <Card
                   key={key}
                   className={`cursor-pointer transition-all hover:border-primary/50 ${
@@ -141,7 +198,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(PERSONALITY_TEMPLATES).map(
+                    {Object.entries(personalityTemplates).map(
                       ([key, template]) => (
                         <SelectItem key={key} value={key}>
                           {template.name}

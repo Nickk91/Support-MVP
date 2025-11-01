@@ -17,6 +17,7 @@ import chatRoutes from "./routes/chat.js";
 import evaluateRoutes from "./routes/evaluate.js";
 import { sanitizeInput } from "./middleware/sanitizeHtmlMiddleware.js";
 import inspectionRoutes from "./routes/inspection.js";
+import getTemplates from "./routes/templates.js";
 
 async function main() {
   // Connect to MongoDB (REPLACED the commented section)
@@ -192,6 +193,7 @@ async function main() {
   app.use("/api/chat", chatRoutes);
   app.use("/api/inspect", inspectionRoutes);
   app.use("/api/evaluate", evaluateRoutes);
+  app.use("/api/templates", getTemplates);
 
   app.get("/api/debug/collections", async (req, res) => {
     try {
