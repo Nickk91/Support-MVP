@@ -1,4 +1,4 @@
-// src/pages/Dashboard/components/BotCard.jsx - UPDATED with template system
+// src/pages/Dashboard/components/BotCard.jsx - UPDATED with color coding
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,19 +38,36 @@ export default function BotCard({
     onEvaluate(bot);
   };
 
-  // 🎯 Template system icons and labels
-  const personalityIcons = {
-    friendly: "😊",
-    professional: "💼",
-    technical: "🔧",
-    custom: "⚙️",
+  // 🎯 Color coding for personality types
+  const getPersonalityColor = (type) => {
+    switch (type) {
+      case "friendly":
+        return "text-green-600";
+      case "professional":
+        return "text-blue-600";
+      case "technical":
+        return "text-purple-600";
+      case "custom":
+        return "text-gray-600";
+      default:
+        return "text-blue-600";
+    }
   };
 
-  const safetyIcons = {
-    lenient: "🟢",
-    standard: "🟡",
-    strict: "🔴",
-    custom: "⚙️",
+  // 🎯 Color coding for safety levels
+  const getSafetyColor = (level) => {
+    switch (level) {
+      case "lenient":
+        return "text-green-600";
+      case "standard":
+        return "text-yellow-600";
+      case "strict":
+        return "text-red-600";
+      case "custom":
+        return "text-gray-600";
+      default:
+        return "text-yellow-600";
+    }
   };
 
   const personalityLabels = {
@@ -77,49 +94,49 @@ export default function BotCard({
           </div>
 
           {/* Action Buttons - MOVED TO TOP RIGHT */}
-          <div className="flex space-x-1">
+          <div className="flex w-full justify-between space-x-1">
             {/* Evaluate Button */}
             <Button
               variant="ghost"
-              size="sm"
               onClick={handleEvaluateClick}
-              className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+              className="flex-1 h-16 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
               title="Test Bot"
+              style={{ fontSize: "1.5rem" }}
             >
-              <Play className="h-4 w-4" />
+              <Play style={{ width: "1.5rem", height: "1.5rem" }} />
             </Button>
 
             {/* Inspect Button */}
             <Button
               variant="ghost"
-              size="sm"
               onClick={handleInspectClick}
-              className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+              className="flex-1 h-16 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
               title="Inspect Documents"
+              style={{ fontSize: "1.5rem" }}
             >
-              <Eye className="h-4 w-4" />
+              <Eye style={{ width: "1.5rem", height: "1.5rem" }} />
             </Button>
 
             {/* Edit Button */}
             <Button
               variant="ghost"
-              size="sm"
               onClick={() => onEdit(bot)}
-              className="h-8 w-8 p-0"
+              className="flex-1 h-16 p-0"
               title="Edit Bot"
+              style={{ fontSize: "1.5rem" }}
             >
-              <Edit className="h-4 w-4" />
+              <Edit style={{ width: "1.5rem", height: "1.5rem" }} />
             </Button>
 
             {/* Delete Button */}
             <Button
               variant="ghost"
-              size="sm"
               onClick={handleDeleteClick}
-              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="flex-1 h-16 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
               title="Delete Bot"
+              style={{ fontSize: "1.5rem" }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 style={{ width: "1.5rem", height: "1.5rem" }} />
             </Button>
           </div>
         </div>
@@ -136,15 +153,19 @@ export default function BotCard({
           <div className="flex items-center space-x-4 text-sm">
             <div className="flex items-center space-x-1">
               <User className="h-4 w-4 text-purple-600" />
-              <span className="font-medium">
-                {personalityIcons[bot.personalityType] || "😊"}{" "}
+              <span
+                className={`font-medium ${getPersonalityColor(
+                  bot.personalityType
+                )}`}
+              >
                 {personalityLabels[bot.personalityType] || "Professional"}
               </span>
             </div>
             <div className="flex items-center space-x-1">
               <Shield className="h-4 w-4 text-orange-600" />
-              <span className="font-medium">
-                {safetyIcons[bot.safetyLevel] || "🟡"}{" "}
+              <span
+                className={`font-medium ${getSafetyColor(bot.safetyLevel)}`}
+              >
                 {safetyLabels[bot.safetyLevel] || "Standard"}
               </span>
             </div>
@@ -193,7 +214,7 @@ export default function BotCard({
           )}
 
           {/* 🎯 NEW: Customization Indicators */}
-          {(bot.personalityType === "custom" ||
+          {/* {(bot.personalityType === "custom" ||
             bot.safetyLevel === "custom") && (
             <div className="pt-2 border-t">
               <div className="flex items-center space-x-2 text-xs text-amber-600">
@@ -202,7 +223,7 @@ export default function BotCard({
                 {bot.safetyLevel === "custom" && <span>Safety Rules</span>}
               </div>
             </div>
-          )}
+          )} */}
 
           {/* Creation Date */}
           <div className="pt-2 border-t text-xs text-muted-foreground">
