@@ -13,6 +13,14 @@ import {
 } from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import { useBotWizardStore } from "@/store/botWizardStore";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { HelpCircle } from "lucide-react";
 
 export default function BotSafetySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
@@ -134,11 +142,29 @@ export default function BotSafetySettings({ bot, onChange }) {
     }
   };
 
+  // Get the current template for tooltip content
+  const currentTemplate =
+    templates.safety[selectedSafety] || templates.safety.standard;
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-4">
-          <CardTitle className="text-lg">Safety & Boundaries</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">Safety & Boundaries</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <p className="text-sm">{currentTemplate.templateGuide}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             Set rules to keep your bot safe and compliant
           </p>
@@ -194,9 +220,27 @@ export default function BotSafetySettings({ bot, onChange }) {
             ))}
           </div>
 
-          {/* Guardrails Editor (always visible) */}
+          {/* Guardrails Editor */}
           <div className="space-y-3">
-            <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-sm">
+                      Rules that prevent your bot from providing harmful,
+                      inappropriate, or off-topic responses. Essential for
+                      safety and compliance.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             <Textarea
               id="guardrails"
               value={bot?.guardrails || ""}
@@ -216,9 +260,27 @@ export default function BotSafetySettings({ bot, onChange }) {
             </p>
           </div>
 
-          {/* Fallback Response Editor (always visible) */}
+          {/* Fallback Response Editor */}
           <div className="space-y-3">
-            <Label htmlFor="fallback">Fallback Response</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="fallback">Fallback Response</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-sm">
+                      What your bot says when it doesn't know the answer or
+                      can't help with a question. Important for managing user
+                      expectations.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             <Textarea
               id="fallback"
               value={bot?.fallback || ""}
