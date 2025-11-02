@@ -1,5 +1,7 @@
 // src/store/botWizardStore.js
 import { create } from "zustand";
+import { PERSONALITY_TEMPLATES } from "@/constants/personalityTemplates";
+import { SAFETY_TEMPLATES } from "@/constants/safetyTemplates";
 
 export const useBotWizardStore = create((set, get) => ({
   // Bot form data
@@ -19,7 +21,7 @@ export const useBotWizardStore = create((set, get) => ({
     greeting: "",
 
     // BASIC TIER: Single company reference
-    companyReference: "", // New field for MVP
+    companyReference: "",
 
     // Brand system (for future tiers - empty in MVP)
     brandContext: {
@@ -35,6 +37,12 @@ export const useBotWizardStore = create((set, get) => ({
     files: [],
   },
 
+  // NEW: Template constants (no loading state needed)
+  templates: {
+    personality: PERSONALITY_TEMPLATES,
+    safety: SAFETY_TEMPLATES,
+  },
+
   // Current step
   currentStep: 0,
 
@@ -48,7 +56,7 @@ export const useBotWizardStore = create((set, get) => ({
 
   nextStep: () =>
     set((state) => ({
-      currentStep: Math.min(state.currentStep + 1, 3), // 3 is the last step index (4 steps total)
+      currentStep: Math.min(state.currentStep + 1, 3),
     })),
 
   prevStep: () =>
@@ -59,32 +67,21 @@ export const useBotWizardStore = create((set, get) => ({
   reset: () =>
     set({
       formData: {
-        // Core bot identity
         botName: "",
         model: "gpt-4o-mini",
         temperature: 0.7,
-
-        // Template system
         personalityType: "professional",
         safetyLevel: "standard",
-
-        // Derived prompts
         systemMessage: "",
         guardrails: "",
         greeting: "",
-
-        // BASIC TIER: Single company reference
         companyReference: "",
-
-        // Brand system (for future tiers - empty in MVP)
         brandContext: {
           primaryCompany: "",
           verifiedBrands: [],
           customBrands: [],
           tier: "basic",
         },
-
-        // Existing fields
         fallback: "",
         escalation: { enabled: false, escalation_email: "" },
         files: [],
@@ -97,7 +94,7 @@ export const useBotWizardStore = create((set, get) => ({
     const { currentStep, formData } = get();
 
     switch (currentStep) {
-      case 0: // Basic Settings - botName, model, AND companyReference are required
+      case 0:
         return !!(
           formData.botName &&
           formData.botName.trim().length > 0 &&
@@ -106,13 +103,13 @@ export const useBotWizardStore = create((set, get) => ({
           formData.companyReference.trim().length > 0
         );
 
-      case 1: // Personality Settings - template selection
+      case 1:
         return !!formData.personalityType;
 
-      case 2: // Safety Settings - template selection
+      case 2:
         return !!formData.safetyLevel;
 
-      case 3: // Knowledge Settings - files are optional
+      case 3:
         return true;
 
       default:

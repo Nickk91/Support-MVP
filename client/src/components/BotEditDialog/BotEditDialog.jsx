@@ -1,5 +1,5 @@
 // src/components/BotEditDialog/BotEditDialog.jsx
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,6 @@ import StepContent from "./StepContent";
 import NavigationButtons from "./NavigationButtons";
 import LoadingOverlay from "./LoadingOverlay";
 
-// UPDATED: Removed "advanced" step
 const STEPS = [
   { id: "basic", label: "Basic Info" },
   { id: "personality", label: "Personality" },
@@ -33,7 +32,7 @@ export default function BotEditDialog({
   const isNew = !bot;
   const { user } = useUserStore();
 
-  // Get store state and actions
+  // Get store state and actions - simplified (no template loading)
   const {
     formData,
     currentStep,
@@ -49,7 +48,6 @@ export default function BotEditDialog({
     if (open && bot) {
       const updatedFormData = { ...bot };
 
-      // If the bot doesn't have template fields (legacy bot), set defaults
       if (!bot.personalityType) {
         updatedFormData.personalityType = "professional";
         updatedFormData.safetyLevel = "standard";
@@ -59,7 +57,6 @@ export default function BotEditDialog({
     }
   }, [open, bot, updateFormData]);
 
-  // Prepare files for upload - ensure they have proper user IDs
   const prepareFilesForUpload = (files) => {
     return files.map((file) => ({
       ...file,
@@ -112,10 +109,8 @@ export default function BotEditDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Step Progress Indicator */}
         <StepProgressIndicator currentStep={currentStep} />
 
-        {/* Current Step Content */}
         <StepContent
           currentStep={STEPS[currentStep].id}
           formData={formData}
@@ -124,7 +119,6 @@ export default function BotEditDialog({
           fileUploadLoading={fileUploadLoading}
         />
 
-        {/* Navigation Buttons */}
         <NavigationButtons
           currentStep={currentStep}
           totalSteps={STEPS.length}
@@ -138,7 +132,6 @@ export default function BotEditDialog({
           onCancel={handleClose}
         />
 
-        {/* BOT CREATION LOADING OVERLAY */}
         <LoadingOverlay
           show={saveLoading && !fileUploadLoading}
           title={isNew ? "Creating Bot" : "Updating Bot"}
