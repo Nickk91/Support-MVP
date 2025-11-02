@@ -12,6 +12,14 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { useState, useEffect, useRef } from "react";
 import { useBotWizardStore } from "@/store/botWizardStore";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { HelpCircle } from "lucide-react";
 
 export default function BotPersonalitySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
@@ -137,6 +145,11 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     handleChange("systemMessage", value);
   };
 
+  const handleGreetingChange = (value) => {
+    setHasEditedManually(true);
+    handleChange("greeting", value);
+  };
+
   const handlePersonalityChange = (personalityKey) => {
     setSelectedPersonality(personalityKey);
 
@@ -169,11 +182,30 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     return "More Creative";
   };
 
+  // Get the current template for tooltip content
+  const currentTemplate =
+    templates.personality[selectedPersonality] ||
+    templates.personality.friendly;
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-4">
-          <CardTitle className="text-lg">Personality Style</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">Personality Style</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <p className="text-sm">{currentTemplate.templateGuide}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             Choose how your assistant behaves and communicates
           </p>
@@ -231,9 +263,27 @@ export default function BotPersonalitySettings({ bot, onChange }) {
             ))}
           </div>
 
-          {/* System Message Editor (always visible) */}
+          {/* System Message Editor */}
           <div className="space-y-3">
-            <Label htmlFor="systemMessage">System Message</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="systemMessage">System Message</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-sm">
+                      This defines the core personality and behavior of your
+                      assistant. It's the most important setting for shaping how
+                      your bot responds to users.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             <Textarea
               id="systemMessage"
               value={bot?.systemMessage || ""}
@@ -250,6 +300,39 @@ export default function BotPersonalitySettings({ bot, onChange }) {
                   • Customized (will save as custom template)
                 </span>
               )}
+            </p>
+          </div>
+
+          {/* NEW: Greeting Editor */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="greeting">Greeting Message</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-sm">
+                      The first message users see when they start a conversation
+                      with your bot. Sets the tone for the interaction.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Textarea
+              id="greeting"
+              value={bot?.greeting || ""}
+              onChange={(e) => handleGreetingChange(e.target.value)}
+              placeholder="What your bot says when a user starts a conversation..."
+              rows={3}
+              className="font-mono text-sm resize-vertical"
+            />
+            <p className="text-sm text-muted-foreground">
+              The first message users see when starting a conversation.
             </p>
           </div>
         </CardContent>
