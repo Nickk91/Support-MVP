@@ -1,7 +1,6 @@
 // src/components/BotEditDialog/steps/BotPersonalitySettings.jsx
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -11,35 +10,119 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { ChevronDown, ChevronUp, Edit3 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { templateService } from "@/services/templateService";
+import { useState, useEffect, useRef } from "react";
+import { useBotWizardStore } from "@/store/botWizardStore";
 
 export default function BotPersonalitySettings({ bot, onChange }) {
-  const [personalityTemplates, setPersonalityTemplates] = useState({});
-  const [loading, setLoading] = useState(true);
+  const { templates } = useBotWizardStore();
   const [selectedPersonality, setSelectedPersonality] = useState("friendly");
+  const [hasEditedManually, setHasEditedManually] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const initialRender = useRef(true);
 
-  // Fetch templates only once on component mount
+  // Set initial personality and populate template content
   useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        setLoading(true);
-        const templates = await templateService.getPersonalityTemplates();
-        setPersonalityTemplates(templates);
+    if (!initialized && templates.personality) {
+      const personalityType = bot?.personalityType || "friendly";
+      setSelectedPersonality(personalityType);
 
-        // Set initial personality type from bot data, default to friendly
-        setSelectedPersonality(bot?.personalityType || "friendly");
-      } catch (error) {
-        console.error("Failed to fetch personality templates:", error);
-        setPersonalityTemplates({});
-      } finally {
-        setLoading(false);
+      const template = templates.personality[personalityType];
+
+      if (template) {
+        const systemMessage = template.systemMessage
+          .replace(/{botName}/g, bot?.botName || "YourBot")
+          .replace(
+            /{companyReference}/g,
+            bot?.companyReference || "our company"
+          );
+
+        const greeting = template.greeting
+          .replace(/{botName}/g, bot?.botName || "YourBot")
+          .replace(
+            /{companyReference}/g,
+            bot?.companyReference || "our company"
+          );
+
+        // For initial render, we assume it's not custom unless we detect otherwise
+        const isCustom = initialRender.current
+          ? false
+          : checkIfCustom(personalityType, systemMessage);
+        setHasEditedManually(isCustom);
+
+        // Only update if we're creating a new bot or fields are empty
+        // For existing bots, preserve their content
+        const updates = {
+          personalityType,
+        };
+
+        const shouldUpdateSystemMessage =
+          !bot?.systemMessage || (initialRender.current && !bot.systemMessage);
+        const shouldUpdateGreeting =
+          !bot?.greeting || (initialRender.current && !bot.greeting);
+
+        if (shouldUpdateSystemMessage) {
+          updates.systemMessage = systemMessage;
+        }
+
+        if (shouldUpdateGreeting) {
+          updates.greeting = greeting;
+        }
+
+        onChange(updates);
+
+        // After the first render, mark that we're no longer in initial state
+        if (initialRender.current) {
+          initialRender.current = false;
+        }
       }
-    };
 
-    fetchTemplates();
-  }, []);
+      setInitialized(true);
+    }
+  }, [bot, onChange, templates.personality, initialized]);
+
+  // Separate effect to check for custom content after the initial content is set
+  useEffect(() => {
+    if (initialized && bot?.systemMessage) {
+      const personalityType = bot.personalityType || "friendly";
+      const template = templates.personality[personalityType];
+
+      if (template && personalityType !== "custom") {
+        const expectedSystemMessage = template.systemMessage
+          .replace(/{botName}/g, bot?.botName || "YourBot")
+          .replace(
+            /{companyReference}/g,
+            bot?.companyReference || "our company"
+          );
+
+        const isCustom =
+          bot.systemMessage.trim() !== expectedSystemMessage.trim();
+        setHasEditedManually(isCustom);
+      } else {
+        setHasEditedManually(true);
+      }
+    }
+  }, [
+    bot?.systemMessage,
+    bot?.personalityType,
+    initialized,
+    templates.personality,
+  ]);
+
+  // Check if the current content matches the template
+  const checkIfCustom = (personalityKey, expectedSystemMessage = null) => {
+    if (!bot?.systemMessage || personalityKey === "custom") return true;
+
+    const template = templates.personality[personalityKey];
+    if (!template) return true;
+
+    const templateSystemMessage =
+      expectedSystemMessage ||
+      template.systemMessage
+        .replace(/{botName}/g, bot?.botName || "YourBot")
+        .replace(/{companyReference}/g, bot?.companyReference || "our company");
+
+    return bot.systemMessage.trim() !== templateSystemMessage.trim();
+  };
 
   const handleChange = (field, value) => {
     onChange({ [field]: value });
@@ -50,15 +133,16 @@ export default function BotPersonalitySettings({ bot, onChange }) {
   };
 
   const handleSystemMessageChange = (value) => {
+    setHasEditedManually(true);
     handleChange("systemMessage", value);
   };
 
   const handlePersonalityChange = (personalityKey) => {
     setSelectedPersonality(personalityKey);
 
-    const template = personalityTemplates[personalityKey];
+    const template = templates.personality[personalityKey];
 
-    if (template) {
+    if (template && personalityKey !== "custom") {
       const systemMessage = template.systemMessage
         .replace(/{botName}/g, bot?.botName || "YourBot")
         .replace(/{companyReference}/g, bot?.companyReference || "our company");
@@ -67,12 +151,16 @@ export default function BotPersonalitySettings({ bot, onChange }) {
         .replace(/{botName}/g, bot?.botName || "YourBot")
         .replace(/{companyReference}/g, bot?.companyReference || "our company");
 
-      handleChange("systemMessage", systemMessage);
-      handleChange("greeting", greeting);
+      onChange({
+        systemMessage,
+        greeting,
+        personalityType: personalityKey,
+      });
+      setHasEditedManually(false);
+    } else {
+      onChange({ personalityType: "custom" });
+      setHasEditedManually(true);
     }
-
-    // Always set the personalityType to the selected key
-    handleChange("personalityType", personalityKey);
   };
 
   const getTemperatureLabel = (temp) => {
@@ -80,25 +168,6 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     if (temp <= 0.6) return "Balanced";
     return "More Creative";
   };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-center py-8">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                <p className="text-sm text-muted-foreground">
-                  Loading personality templates...
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -116,29 +185,32 @@ export default function BotPersonalitySettings({ bot, onChange }) {
               Personality Template:
             </Label>
             <Select
-              value={selectedPersonality}
+              value={hasEditedManually ? "custom" : selectedPersonality}
               onValueChange={handlePersonalityChange}
             >
               <SelectTrigger className="w-[200px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(personalityTemplates).map(([key, template]) => (
-                  <SelectItem key={key} value={key}>
-                    {template.name}
-                  </SelectItem>
-                ))}
+                {Object.entries(templates.personality).map(
+                  ([key, template]) => (
+                    <SelectItem key={key} value={key}>
+                      {template.name}
+                    </SelectItem>
+                  )
+                )}
+                <SelectItem value="custom">Custom Personality</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Template Cards for quick selection */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.entries(personalityTemplates).map(([key, template]) => (
+            {Object.entries(templates.personality).map(([key, template]) => (
               <Card
                 key={key}
                 className={`cursor-pointer transition-all hover:border-primary/50 ${
-                  selectedPersonality === key
+                  (hasEditedManually ? "custom" : selectedPersonality) === key
                     ? "border-primary bg-primary/5"
                     : ""
                 }`}
@@ -172,6 +244,12 @@ export default function BotPersonalitySettings({ bot, onChange }) {
             />
             <p className="text-sm text-muted-foreground">
               This message defines the bot's personality and primary behavior.
+              {hasEditedManually && (
+                <span className="text-amber-600 font-medium">
+                  {" "}
+                  • Customized (will save as custom template)
+                </span>
+              )}
             </p>
           </div>
         </CardContent>

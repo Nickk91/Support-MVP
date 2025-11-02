@@ -3,7 +3,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -12,35 +11,87 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronDown, ChevronUp, Edit3 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { templateService } from "@/services/templateService";
+import { useState, useEffect, useRef } from "react";
+import { useBotWizardStore } from "@/store/botWizardStore";
 
 export default function BotSafetySettings({ bot, onChange }) {
-  const [safetyTemplates, setSafetyTemplates] = useState({});
-  const [loading, setLoading] = useState(true);
+  const { templates } = useBotWizardStore();
   const [selectedSafety, setSelectedSafety] = useState("standard");
+  const [hasEditedManually, setHasEditedManually] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const initialRender = useRef(true);
 
-  // Fetch templates only once on component mount
+  // Set initial safety level and populate template content
   useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        setLoading(true);
-        const templates = await templateService.getSafetyTemplates();
-        setSafetyTemplates(templates);
+    if (!initialized && templates.safety) {
+      const safetyLevel = bot?.safetyLevel || "standard";
+      setSelectedSafety(safetyLevel);
 
-        // Set initial safety level from bot data, default to standard
-        setSelectedSafety(bot?.safetyLevel || "standard");
-      } catch (error) {
-        console.error("Failed to fetch safety templates:", error);
-        setSafetyTemplates({});
-      } finally {
-        setLoading(false);
+      const template = templates.safety[safetyLevel];
+
+      if (template) {
+        // For initial render, we assume it's not custom unless we detect otherwise
+        const isCustom = initialRender.current
+          ? false
+          : checkIfCustom(safetyLevel, template.guardrails);
+        setHasEditedManually(isCustom);
+
+        // Only update if we're creating a new bot or fields are empty
+        // For existing bots, preserve their content
+        const updates = {
+          safetyLevel,
+        };
+
+        const shouldUpdateGuardrails =
+          !bot?.guardrails || (initialRender.current && !bot.guardrails);
+        const shouldUpdateFallback =
+          !bot?.fallback || (initialRender.current && !bot.fallback);
+
+        if (shouldUpdateGuardrails) {
+          updates.guardrails = template.guardrails;
+        }
+
+        if (shouldUpdateFallback) {
+          updates.fallback = template.fallback;
+        }
+
+        onChange(updates);
+
+        // After the first render, mark that we're no longer in initial state
+        if (initialRender.current) {
+          initialRender.current = false;
+        }
       }
-    };
 
-    fetchTemplates();
-  }, []);
+      setInitialized(true);
+    }
+  }, [bot, onChange, templates.safety, initialized]);
+
+  // Separate effect to check for custom content after the initial content is set
+  useEffect(() => {
+    if (initialized && bot?.guardrails) {
+      const safetyLevel = bot.safetyLevel || "standard";
+      const template = templates.safety[safetyLevel];
+
+      if (template && safetyLevel !== "custom") {
+        const isCustom = bot.guardrails.trim() !== template.guardrails.trim();
+        setHasEditedManually(isCustom);
+      } else {
+        setHasEditedManually(true);
+      }
+    }
+  }, [bot?.guardrails, bot?.safetyLevel, initialized, templates.safety]);
+
+  // Check if the current content matches the template
+  const checkIfCustom = (safetyKey, expectedGuardrails = null) => {
+    if (!bot?.guardrails || safetyKey === "custom") return true;
+
+    const template = templates.safety[safetyKey];
+    if (!template) return true;
+
+    const templateGuardrails = expectedGuardrails || template.guardrails;
+    return bot.guardrails.trim() !== templateGuardrails.trim();
+  };
 
   const handleChange = (field, value) => {
     onChange({ [field]: value });
@@ -56,41 +107,32 @@ export default function BotSafetySettings({ bot, onChange }) {
   };
 
   const handleGuardrailsChange = (value) => {
+    setHasEditedManually(true);
     handleChange("guardrails", value);
+  };
+
+  const handleFallbackChange = (value) => {
+    setHasEditedManually(true);
+    handleChange("fallback", value);
   };
 
   const handleSafetyChange = (safetyKey) => {
     setSelectedSafety(safetyKey);
 
-    const template = safetyTemplates[safetyKey];
+    const template = templates.safety[safetyKey];
 
-    if (template) {
-      handleChange("guardrails", template.guardrails);
-      handleChange("fallback", template.fallback);
+    if (template && safetyKey !== "custom") {
+      onChange({
+        guardrails: template.guardrails,
+        fallback: template.fallback,
+        safetyLevel: safetyKey,
+      });
+      setHasEditedManually(false);
+    } else {
+      onChange({ safetyLevel: "custom" });
+      setHasEditedManually(true);
     }
-
-    // Always set the safetyLevel to the selected key
-    handleChange("safetyLevel", safetyKey);
   };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-center py-8">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                <p className="text-sm text-muted-foreground">
-                  Loading safety templates...
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -107,27 +149,33 @@ export default function BotSafetySettings({ bot, onChange }) {
             <Label className="font-medium whitespace-nowrap">
               Safety Template:
             </Label>
-            <Select value={selectedSafety} onValueChange={handleSafetyChange}>
+            <Select
+              value={hasEditedManually ? "custom" : selectedSafety}
+              onValueChange={handleSafetyChange}
+            >
               <SelectTrigger className="w-[200px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(safetyTemplates).map(([key, template]) => (
+                {Object.entries(templates.safety).map(([key, template]) => (
                   <SelectItem key={key} value={key}>
                     {template.name}
                   </SelectItem>
                 ))}
+                <SelectItem value="custom">Custom Safety Rules</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Template Cards for quick selection */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.entries(safetyTemplates).map(([key, template]) => (
+            {Object.entries(templates.safety).map(([key, template]) => (
               <Card
                 key={key}
                 className={`cursor-pointer transition-all hover:border-primary/50 ${
-                  selectedSafety === key ? "border-primary bg-primary/5" : ""
+                  (hasEditedManually ? "custom" : selectedSafety) === key
+                    ? "border-primary bg-primary/5"
+                    : ""
                 }`}
                 onClick={() => handleSafetyChange(key)}
               >
@@ -159,6 +207,12 @@ export default function BotSafetySettings({ bot, onChange }) {
             />
             <p className="text-sm text-muted-foreground">
               Rules and restrictions to keep your bot safe and on-brand
+              {hasEditedManually && (
+                <span className="text-amber-600 font-medium">
+                  {" "}
+                  • Customized (will save as custom template)
+                </span>
+              )}
             </p>
           </div>
 
@@ -168,7 +222,7 @@ export default function BotSafetySettings({ bot, onChange }) {
             <Textarea
               id="fallback"
               value={bot?.fallback || ""}
-              onChange={(e) => handleChange("fallback", e.target.value)}
+              onChange={(e) => handleFallbackChange(e.target.value)}
               placeholder="What to say when the bot doesn't know the answer..."
               rows={3}
               className="font-mono text-sm resize-vertical"
