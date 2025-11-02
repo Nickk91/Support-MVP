@@ -10,17 +10,16 @@ import { deleteFileFromS3 } from "../utils/s3Utils.js";
 import pythonService from "../services/pythonService.js";
 import { composeBotConfig } from "../utils/botTemplateComposer.js";
 
-// 🎯 CREATE BOT - NEW TEMPLATE SYSTEM
+// 🎯 CREATE BOT - UPDATED TO USE USER'S COMPANY
 export const createBot = async (req, res) => {
   try {
     const {
       botName,
       model,
-      companyReference, // REQUIRED
+      companyReference,
       personalityType = "professional",
       safetyLevel = "standard",
       temperature = 0.7,
-      // Custom overrides (optional)
       systemMessage,
       guardrails,
       greeting,
@@ -29,7 +28,7 @@ export const createBot = async (req, res) => {
       files = [],
     } = req.body;
 
-    console.log("🤖 Creating bot with new template system:", {
+    console.log("🤖 Creating bot with user's company:", {
       botName,
       companyReference,
       personalityType,
@@ -37,17 +36,17 @@ export const createBot = async (req, res) => {
       userId: req.user.userId,
     });
 
-    // 🚨 STRICT VALIDATION - New requirements
-    if (!botName || !model || !companyReference) {
+    // 🚨 STRICT VALIDATION
+    if (!botName || !model) {
       return res.status(400).json({
         ok: false,
         error: "missing_required_fields",
-        message: "Bot name, model, and company reference are required",
-        required: ["botName", "model", "companyReference"],
+        message: "Bot name and model are required",
+        required: ["botName", "model"],
       });
     }
 
-    // Verify user exists in MongoDB
+    // Verify user exists
     const user = await User.findOne({ _id: req.user.userId });
     if (!user) {
       console.error("❌ User not found:", req.user.userId);
@@ -58,7 +57,20 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Check for duplicate bot name within user's bots
+    // 🎯 Get available brands and validate
+    const availableBrands = getAvailableBrands(user);
+    const selectedBrand = companyReference || user.companyName;
+
+    if (!availableBrands.includes(selectedBrand)) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid_company_reference",
+        message:
+          "Invalid company reference. Please select from your available brands.",
+      });
+    }
+
+    // Check for duplicate bot name
     const duplicateBot = await Bot.findOne({
       botName: botName,
       ownerId: req.user.userId,
@@ -72,23 +84,23 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Create new bot with nanoid for ID
-    const botId = nanoid();
+    // 🎯 REMOVED: const botId = nanoid();
+    // MongoDB will now auto-generate a valid _id
 
-    // Ensure files have proper uploadedBy values
+    // Process files
     const processedFiles = (files || []).map((file) => ({
       ...file,
       uploadedBy: req.user.userId,
     }));
 
-    // 🎯 COMPOSE COMPLETE BOT CONFIG USING TEMPLATES
+    // Compose bot config
     const formData = {
       botName,
       model,
       temperature,
       personalityType,
       safetyLevel,
-      companyReference,
+      companyReference: selectedBrand,
       systemMessage,
       guardrails,
       greeting,
@@ -99,10 +111,23 @@ export const createBot = async (req, res) => {
 
     const botConfig = composeBotConfig(formData);
 
-    // 🎯 CREATE BOT WITH NEW STRUCTURE
+    // 🎯 CREATE BOT WITHOUT MANUAL _id
     const newBot = new Bot({
-      _id: botId,
+      // 🎯 REMOVED: _id: botId, - Let MongoDB handle ID generation
       ...botConfig,
+      brandContext: {
+        primaryCompany: user.companyName,
+        verifiedBrands:
+          user.brandSettings?.verifiedBrands?.map((b) => b.name) || [],
+        customBrands:
+          user.brandSettings?.customBrands?.map((b) => b.name) || [],
+        tier: user.brandSettings?.tier || "basic",
+        verificationStatus: "unverified",
+      },
+      currentBrand: {
+        type: selectedBrand === user.companyName ? "primary" : "verified",
+        reference: selectedBrand,
+      },
       ownerId: req.user.userId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -110,16 +135,16 @@ export const createBot = async (req, res) => {
 
     await newBot.save();
 
-    console.log("✅ Bot created with new template system:", {
-      id: botId,
+    console.log("✅ Bot created with MongoDB _id:", {
+      id: newBot._id, // Use the auto-generated ID
       botName,
-      companyReference,
-      personalityType: botConfig.personalityType, // May be 'custom' if overridden
-      safetyLevel: botConfig.safetyLevel, // May be 'custom' if overridden
+      companyReference: selectedBrand,
+      personalityType: botConfig.personalityType,
+      safetyLevel: botConfig.safetyLevel,
       ownerId: req.user.userId,
     });
 
-    // 🐍 Python RAG Integration - Register bot using centralized service
+    // 🐍 Python RAG Integration - Use newBot._id instead of botId
     let pythonRagStatus = "disconnected";
     let pythonRagError = null;
 
@@ -128,15 +153,14 @@ export const createBot = async (req, res) => {
 
       await pythonService.createBot(
         {
-          bot_id: botId,
+          bot_id: newBot._id, // Use the MongoDB-generated _id
           bot_name: botName,
-          system_message: botConfig.systemMessage, // Use composed system message
+          system_message: botConfig.systemMessage,
           model: model,
-          fallback: botConfig.fallback, // Use composed fallback
+          fallback: botConfig.fallback,
           owner_id: req.user.userId,
         },
-        req.user.userId,
-        req.user.tenantId
+        req.user.userId
       );
 
       pythonRagStatus = "connected";
@@ -170,7 +194,7 @@ export const createBot = async (req, res) => {
   }
 };
 
-// 🎯 UPDATE BOT - NEW TEMPLATE SYSTEM
+// 🎯 UPDATE BOT - UPDATED TO USE USER'S COMPANY
 export const updateBot = async (req, res) => {
   try {
     const {
@@ -202,6 +226,31 @@ export const updateBot = async (req, res) => {
       });
     }
 
+    // 🎯 NEW: Get user to validate companyReference
+    const user = await User.findOne({ _id: req.user.userId });
+    if (!user) {
+      return res.status(400).json({
+        ok: false,
+        error: "user_not_found",
+        message: "User not found. Please register again.",
+      });
+    }
+
+    // 🎯 NEW: Validate companyReference if provided
+    let selectedBrand = companyReference || bot.companyReference;
+    if (companyReference) {
+      const availableBrands = getAvailableBrands(user);
+      if (!availableBrands.includes(companyReference)) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_company_reference",
+          message:
+            "Invalid company reference. Please select from your available brands.",
+        });
+      }
+      selectedBrand = companyReference;
+    }
+
     // Check for duplicate name (only within user's own bots)
     if (botName !== bot.botName) {
       const duplicateBot = await Bot.findOne({
@@ -226,7 +275,7 @@ export const updateBot = async (req, res) => {
       temperature: temperature ?? bot.temperature,
       personalityType: personalityType ?? bot.personalityType,
       safetyLevel: safetyLevel ?? bot.safetyLevel,
-      companyReference: companyReference ?? bot.companyReference,
+      companyReference: selectedBrand, // Use validated brand
       systemMessage: systemMessage ?? bot.systemMessage,
       guardrails: guardrails ?? bot.guardrails,
       greeting: greeting ?? bot.greeting,
@@ -237,16 +286,32 @@ export const updateBot = async (req, res) => {
 
     const botConfig = composeBotConfig(formData);
 
-    // 🎯 UPDATE BOT WITH COMPOSED CONFIGURATION
+    // 🎯 UPDATE BOT WITH COMPOSED CONFIGURATION AND USER'S BRAND STRUCTURE
     Object.assign(bot, botConfig);
+
+    // 🎯 UPDATED: Update brand context with user's current structure
+    bot.brandContext = {
+      primaryCompany: user.companyName,
+      verifiedBrands:
+        user.brandSettings?.verifiedBrands?.map((b) => b.name) || [],
+      customBrands: user.brandSettings?.customBrands?.map((b) => b.name) || [],
+      tier: user.brandSettings?.tier || "basic",
+      verificationStatus: bot.brandContext?.verificationStatus || "unverified",
+    };
+
+    bot.currentBrand = {
+      type: selectedBrand === user.companyName ? "primary" : "verified",
+      reference: selectedBrand,
+    };
+
     bot.updatedAt = new Date();
 
     await bot.save();
 
-    console.log("✅ Bot updated in MongoDB:", {
+    console.log("✅ Bot updated with user's company:", {
       id: req.params.id,
       botName,
-      companyReference: botConfig.companyReference,
+      companyReference: selectedBrand,
       personalityType: botConfig.personalityType,
       safetyLevel: botConfig.safetyLevel,
       ownerId: req.user.userId,
@@ -262,15 +327,13 @@ export const updateBot = async (req, res) => {
           model: model,
           fallback: botConfig.fallback,
           temperature: botConfig.temperature,
-          // 🎯 NEW TEMPLATE FIELDS
           company_reference: botConfig.companyReference,
           personality_type: botConfig.personalityType,
           safety_level: botConfig.safetyLevel,
           guardrails: botConfig.guardrails,
           greeting: botConfig.greeting,
         },
-        req.user.userId,
-        req.user.tenantId
+        req.user.userId
       );
 
       console.log("✅ Bot updated in Python RAG service:", {
@@ -282,7 +345,6 @@ export const updateBot = async (req, res) => {
         "⚠️ Bot updated in MongoDB but Python RAG service had issues:",
         pythonError.message
       );
-      // 🎯 DON'T THROW ERROR - JUST LOG AND CONTINUE
     }
 
     res.json({
@@ -298,6 +360,27 @@ export const updateBot = async (req, res) => {
     });
   }
 };
+
+// 🎯 HELPER FUNCTION: Get available brands for a user
+function getAvailableBrands(user) {
+  const brands = [user.companyName]; // Always include primary company
+
+  // Add verified brands
+  if (user.brandSettings?.verifiedBrands) {
+    user.brandSettings.verifiedBrands
+      .filter((brand) => brand.isActive)
+      .forEach((brand) => brands.push(brand.name));
+  }
+
+  // Add custom brands
+  if (user.brandSettings?.customBrands) {
+    user.brandSettings.customBrands
+      .filter((brand) => brand.isActive)
+      .forEach((brand) => brands.push(brand.name));
+  }
+
+  return [...new Set(brands)]; // Remove duplicates
+}
 
 // Get all bots for user (only user's own bots)
 export const getBots = async (req, res) => {
@@ -521,7 +604,7 @@ export const deleteBot = async (req, res) => {
     // 4. Delete vector store data from Python service
     console.log(`🗑️ Deleting vector store for bot ${botId}...`);
     try {
-      await pythonService.deleteBot(botId, userId, req.user.tenantId);
+      await pythonService.deleteBot(botId, userId);
       console.log(`✅ Vector store deleted for bot ${botId}`);
     } catch (error) {
       console.error(
@@ -532,7 +615,6 @@ export const deleteBot = async (req, res) => {
         operation: "vector_store_deletion",
         error: error.message,
       });
-      // Continue with bot deletion even if vector cleanup fails
     }
 
     // 5. Finally delete the bot itself
@@ -562,7 +644,7 @@ export const deleteBot = async (req, res) => {
   }
 };
 
-// File cleanup for specific files - UPDATED TO DELETE DOCUMENT RECORDS
+// File cleanup for specific files
 export const cleanupUploads = async (req, res) => {
   console.log("🧹 SERVER CLEANUP DEBUG - START =================");
   try {
@@ -648,7 +730,7 @@ export const cleanupUploads = async (req, res) => {
         results: {
           s3Deletions: [],
           chunkDeletions: 0,
-          documentDeletions: 0, // Changed from documentUpdates
+          documentDeletions: 0,
           errors: [],
         },
       });
@@ -657,7 +739,7 @@ export const cleanupUploads = async (req, res) => {
     const cleanupResults = {
       s3Deletions: [],
       chunkDeletions: 0,
-      documentDeletions: 0, // Changed from documentUpdates
+      documentDeletions: 0,
       errors: [],
     };
 
@@ -674,7 +756,7 @@ export const cleanupUploads = async (req, res) => {
           console.log(`✅ Deleted from S3: ${file.s3Key}`);
         }
 
-        // 2. Delete chunks from MongoDB - FIXED: Use multiple field names
+        // 2. Delete chunks from MongoDB
         console.log(`🗑️ Deleting chunks for: ${file.s3Key}`);
         const chunkResult = await Chunk.deleteMany({
           bot_id: botId,
@@ -688,7 +770,7 @@ export const cleanupUploads = async (req, res) => {
         cleanupResults.chunkDeletions += chunkResult.deletedCount;
         console.log(`✅ Deleted ${chunkResult.deletedCount} chunks`);
 
-        // 🎯 CRITICAL FIX: DELETE document records instead of updating status
+        // 🎯 DELETE document records
         console.log(`🗑️ Deleting document records for: ${file.s3Key}`);
         const docResult = await Document.deleteMany({
           bot_id: botId,
@@ -699,7 +781,7 @@ export const cleanupUploads = async (req, res) => {
           ],
         });
         if (docResult.deletedCount > 0) {
-          cleanupResults.documentDeletions += docResult.deletedCount; // Changed from documentUpdates
+          cleanupResults.documentDeletions += docResult.deletedCount;
           console.log(`✅ Deleted ${docResult.deletedCount} document records`);
         } else {
           console.log(
@@ -715,7 +797,7 @@ export const cleanupUploads = async (req, res) => {
       }
     }
 
-    // 4. Update bot to remove the deleted files (THIS WAS MISSING!)
+    // 4. Update bot to remove the deleted files
     if (filesToDelete.length > 0) {
       console.log(`🗑️ Removing ${filesToDelete.length} files from bot`);
       bot.files = remainingFiles;
@@ -730,12 +812,7 @@ export const cleanupUploads = async (req, res) => {
       const s3KeysToCleanup = filesToDelete.map((f) => f.s3Key).filter(Boolean);
       if (s3KeysToCleanup.length > 0) {
         console.log(`🧹 Cleaning up vector store for files:`, s3KeysToCleanup);
-        await pythonService.cleanupFiles(
-          botId,
-          s3KeysToCleanup,
-          userId,
-          req.user.tenantId
-        );
+        await pythonService.cleanupFiles(botId, s3KeysToCleanup, userId);
         console.log(`✅ Cleaned up vector store`);
       }
     } catch (error) {
@@ -765,7 +842,6 @@ export const cleanupUploads = async (req, res) => {
 };
 
 // Update bot files - COMPLETELY REPLACED FOR FILE REPLACEMENT
-// COMPLETELY UPDATED updateBotFiles function - FIXED FOR FILE REPLACEMENT
 export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
   try {
     console.log("🔄 updateBotFiles - Starting COMPLETE file replacement");
@@ -791,7 +867,6 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
       console.log("🗑️ Cleaning up ALL old files before replacement");
 
       for (const oldFile of oldFiles) {
-        // 🎯 CRITICAL FIX: Clean up BOTH temp files AND actual S3 files
         if (oldFile.s3Key && !oldFile.s3Key.startsWith("temp_")) {
           try {
             console.log(
@@ -802,7 +877,7 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
             await deleteFileFromS3(oldFile.s3Key);
             console.log(`✅ Deleted old S3 file: ${oldFile.s3Key}`);
 
-            // 2. Delete chunks - Use multiple field names for comprehensive cleanup
+            // 2. Delete chunks
             const chunkResult = await Chunk.deleteMany({
               bot_id: botId,
               $or: [
@@ -816,7 +891,7 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
               `✅ Deleted ${chunkResult.deletedCount} old chunks for ${oldFile.s3Key}`
             );
 
-            // 🎯 CRITICAL FIX: DELETE document records instead of updating status
+            // 🎯 DELETE document records
             console.log(`🗑️ Deleting document records for: ${oldFile.s3Key}`);
             const docResult = await Document.deleteMany({
               bot_id: botId,
@@ -840,7 +915,6 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
               `⚠️ Failed to cleanup old file ${oldFile.s3Key}:`,
               cleanupError
             );
-            // Continue with other files - don't fail the whole operation
           }
         } else if (oldFile.storedAs && oldFile.storedAs.startsWith("temp_")) {
           console.log(
@@ -851,7 +925,7 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
         }
       }
 
-      // 🎯 ADDITIONAL FIX: Also try to cleanup by filename for any remaining chunks
+      // Additional cleanup by filename
       console.log("🔍 Performing additional cleanup by filename...");
       for (const oldFile of oldFiles) {
         if (
@@ -860,7 +934,6 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
           !oldFile.s3Key.startsWith("temp_")
         ) {
           try {
-            // Try to delete chunks by filename as well (in case they were stored differently)
             const filenameChunkResult = await Chunk.deleteMany({
               bot_id: botId,
               $or: [
@@ -875,7 +948,6 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
               );
             }
 
-            // Also try to delete document records by filename
             const filenameDocResult = await Document.deleteMany({
               bot_id: botId,
               $or: [
@@ -899,7 +971,7 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
       }
     }
 
-    // 🎯 COMPLETELY REPLACE the files array with new files (no merging)
+    // 🎯 COMPLETELY REPLACE the files array with new files
     const updatedBot = await Bot.findOneAndUpdate(
       {
         _id: botId,
@@ -907,7 +979,7 @@ export const updateBotFiles = async (botId, ownerId, newFileRecords) => {
       },
       {
         $set: {
-          files: newFileRecords, // Complete replacement, no merging
+          files: newFileRecords,
           updatedAt: new Date(),
         },
       },
@@ -997,9 +1069,6 @@ export const cleanupOrphanedVectorStores = async (req, res) => {
     // Get all bot IDs from MongoDB
     const allBots = await Bot.find({}, "_id");
     const botIds = allBots.map((bot) => bot._id);
-
-    // This would require the Python service to have an endpoint to list all vector stores
-    // and clean up ones that don't match existing bot IDs
 
     res.json({
       ok: true,

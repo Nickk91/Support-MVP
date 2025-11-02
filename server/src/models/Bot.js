@@ -2,13 +2,18 @@
 import mongoose from "mongoose";
 
 const BotSchema = new mongoose.Schema({
-  _id: { type: String, required: true }, // nanoid
+  // _id: { type: String, required: true }, // nanoid
   botName: { type: String, required: true },
   model: { type: String, required: true },
   temperature: { type: Number, default: 0.7 },
 
-  // 🎯 NEW TEMPLATE SYSTEM - REQUIRED FIELDS
-  companyReference: { type: String, required: true },
+  // 🎯 UPDATED: Reference user's company instead of free text
+  companyReference: {
+    type: String,
+    required: true,
+    // This will be validated against user's available brands
+  },
+
   personalityType: {
     type: String,
     required: true,
@@ -22,11 +27,25 @@ const BotSchema = new mongoose.Schema({
     default: "standard",
   },
 
-  // 🎯 BRAND SYSTEM STRUCTURE
+  // 🎯 UPDATED BRAND SYSTEM - Link to user's company structure
   brandContext: {
-    primaryCompany: { type: String, required: true },
-    verifiedBrands: [{ type: String }],
-    customBrands: [{ type: String }],
+    primaryCompany: {
+      type: String,
+      required: true,
+      // This will be the user's companyName from their profile
+    },
+    verifiedBrands: [
+      {
+        type: String,
+        // These will be validated brands from the user's account
+      },
+    ],
+    customBrands: [
+      {
+        type: String,
+        // User-defined brands (for future tiers)
+      },
+    ],
     tier: {
       type: String,
       enum: ["basic", "pro", "enterprise"],
@@ -45,7 +64,11 @@ const BotSchema = new mongoose.Schema({
       enum: ["primary", "verified", "custom"],
       default: "primary",
     },
-    reference: { type: String, required: true },
+    reference: {
+      type: String,
+      required: true,
+      // This will match one of the available brands
+    },
   },
 
   // 🎯 DERIVED PROMPTS (from templates + customizations)
