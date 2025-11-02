@@ -6,8 +6,6 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "your-super-secret-jwt-key-change-in-production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
 
-// Generate tenant ID
-
 // Register new client
 export const register = async (req, res) => {
   try {
@@ -43,16 +41,22 @@ export const register = async (req, res) => {
       });
     }
 
-    // ✅ REMOVE THIS LINE: const userId = nanoid();
     const passwordHash = await bcrypt.hash(password, 12);
 
+    // 🎯 UPDATED: Include brandSettings in new user creation
     const newUser = new User({
-      // ✅ REMOVE: _id: userId - let MongoDB handle ObjectId automatically
       email: email.toLowerCase(),
       passwordHash,
       firstName,
       lastName,
       companyName,
+      // 🎯 NEW: Initialize brand settings
+      brandSettings: {
+        primaryCompany: companyName,
+        verifiedBrands: [],
+        customBrands: [],
+        tier: "basic",
+      },
       role: "client_admin",
       isActive: true,
       plan: "starter",
@@ -61,14 +65,15 @@ export const register = async (req, res) => {
     await newUser.save();
 
     console.log("✅ User registered in MongoDB:", {
-      id: newUser._id, // This will be automatic ObjectId
+      id: newUser._id,
       email,
+      companyName,
     });
 
-    // Generate JWT token - Use the automatic ObjectId
+    // Generate JWT token
     const token = jwt.sign(
       {
-        userId: newUser._id, // This is now ObjectId
+        userId: newUser._id,
         role: newUser.role,
         email: newUser.email,
       },
@@ -80,14 +85,16 @@ export const register = async (req, res) => {
       ok: true,
       access_token: token,
       token_type: "bearer",
-      user_id: newUser._id, // ObjectId
+      user_id: newUser._id,
       role: newUser.role,
       user: {
-        id: newUser._id, // ObjectId
+        id: newUser._id,
         email: newUser.email,
         firstName: newUser.firstName,
         lastName: newUser.lastName,
         companyName: newUser.companyName,
+        // 🎯 NEW: Include brand settings in response
+        brandSettings: newUser.brandSettings,
         plan: newUser.plan,
       },
     });
@@ -101,7 +108,7 @@ export const register = async (req, res) => {
   }
 };
 
-// Login - Updated to use MongoDB
+// Login - Updated to include brand settings
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -128,11 +135,10 @@ export const login = async (req, res) => {
       });
     }
 
-    // Generate JWT token - Use consistent userId field
+    // Generate JWT token
     const token = jwt.sign(
       {
-        userId: user._id, // Use userId consistently
-        tenantId: user.tenantId,
+        userId: user._id,
         role: user.role,
         email: user.email,
       },
@@ -145,7 +151,6 @@ export const login = async (req, res) => {
       access_token: token,
       token_type: "bearer",
       user_id: user._id,
-      tenant_id: user.tenantId,
       role: user.role,
       user: {
         id: user._id,
@@ -153,6 +158,8 @@ export const login = async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         companyName: user.companyName,
+        // 🎯 NEW: Include brand settings in response
+        brandSettings: user.brandSettings,
         plan: user.plan,
       },
     });
@@ -166,7 +173,7 @@ export const login = async (req, res) => {
   }
 };
 
-// Get current user info - Updated for MongoDB
+// Get current user info - Updated to include brand settings
 export const getCurrentUser = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -187,8 +194,9 @@ export const getCurrentUser = async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         companyName: user.companyName,
+        // 🎯 NEW: Include brand settings in response
+        brandSettings: user.brandSettings,
         role: user.role,
-        tenantId: user.tenantId,
         plan: user.plan,
       },
     });
