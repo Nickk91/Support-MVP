@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 import logging
 from app.models.bot import get_bot_config_with_jwt, get_bot_config_with_fallback  # Ensure these imports
+import asyncio 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def start_evaluation(request: StartEvaluationRequest):
         tenant_id=request.tenant_id,
         user_id=request.user_id,
         created_at=datetime.now(timezone.utc).isoformat(),
-        messages=[]
+        messages=[]  # 🎯 Start with empty messages - greeting will be first
     )
     
     logger.info(f"Started evaluation session: {session_id} for bot: {request.bot_id}")
@@ -77,12 +78,13 @@ async def evaluate_chat(
     jwt_token = None
     if authorization:
         if authorization.startswith("Bearer "):
-            jwt_token = authorization  # Keep the full "Bearer <token>" format
+            jwt_token = authorization
         else:
-            jwt_token = f"Bearer {authorization}"  # Add Bearer prefix if missing
+            jwt_token = f"Bearer {authorization}"
     
     logger.info(f"🎯 Evaluation chat - JWT present: {jwt_token is not None}")
     logger.info(f"   Bot ID: {request.message.bot_id}, User ID: {user_id}, Tenant: {tenant_id}")
+    logger.info(f"   Session messages count: {len(session.messages)}")  # 🎯 DEBUG
     
     try:
         from app.rag.core import answer_query
@@ -97,6 +99,7 @@ async def evaluate_chat(
                     tenant_id
                 )
                 logger.info(f"✅ Bot config fetched via JWT: {bot_config.bot_name}")
+                logger.info(f"🎯 Bot greeting: '{bot_config.greeting}'")
             except Exception as jwt_error:
                 logger.warning(f"⚠️ JWT auth failed, falling back to internal token: {jwt_error}")
         
@@ -109,11 +112,57 @@ async def evaluate_chat(
                     user_id
                 )
                 logger.info(f"✅ Bot config fetched via internal token: {bot_config.bot_name}")
+                logger.info(f"🎯 Bot greeting: '{bot_config.greeting}'")
             except Exception as fallback_error:
                 logger.error(f"❌ All bot config methods failed: {fallback_error}")
                 raise HTTPException(status_code=500, detail="Could not fetch bot configuration")
         
-        # Process through template-aware RAG system
+        # 🎯 NEW: CHECK IF THIS IS THE FIRST MESSAGE AND RETURN GREETING
+        if not session.messages:
+            logger.info(f"🎯 FIRST MESSAGE DETECTED - Applying 4-second delay for greeting")
+            logger.info(f"   User message: '{request.message.message}'")
+            
+            # 🎯 ADD HUMAN-LIKE DELAY FOR GREETING
+            start_time = datetime.now(timezone.utc)
+            logger.info(f"⏳ Starting 4-second delay at {start_time.isoformat()}")
+            await asyncio.sleep(4)
+            end_time = datetime.now(timezone.utc)
+            delay_duration = (end_time - start_time).total_seconds()
+            logger.info(f"✅ Delay completed after {delay_duration:.2f} seconds at {end_time.isoformat()}")
+            
+            # Create greeting message
+            greeting_msg = {
+                "id": str(uuid.uuid4()),
+                "type": "bot",
+                "content": bot_config.greeting,
+                "sources": [],
+                "template_info": {
+                    "personality_type": bot_config.personality_type,
+                    "safety_level": bot_config.safety_level,
+                    "company_reference": bot_config.company_reference,
+                    "model": bot_config.model,
+                    "is_greeting": True,
+                    "had_delay": True,
+                    "response_time_ms": int(delay_duration * 1000),
+                    "user_message": request.message.message  # 🎯 Track what triggered this
+                },
+                "timestamp": end_time.isoformat()
+            }
+            
+            session.messages.append(greeting_msg)
+            
+            logger.info(f"✅ Returning greeting after delay: '{bot_config.greeting}'")
+            
+            return {
+                "response": bot_config.greeting,
+                "sources": [],
+                "session_id": request.session_id,
+                "template_info": greeting_msg["template_info"],
+                "is_greeting": True
+            }
+        
+        # 🎯 REGULAR MESSAGE PROCESSING (existing code)
+        logger.info(f"🎯 REGULAR MESSAGE PROCESSING - No delay applied")
         rag_result = await answer_query(
             bot_id=request.message.bot_id,
             question=request.message.message,
