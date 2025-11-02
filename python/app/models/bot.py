@@ -49,11 +49,19 @@ class BotConfig:
         self.personality_type = bot_data.get('personalityType', 'professional')
         self.safety_level = bot_data.get('safetyLevel', 'standard')
         
-        # 🎯 BRAND SYSTEM
+        # 🎯 BRAND SYSTEM - FIXED STRUCTURE
         self.brand_context = bot_data.get('brandContext', {})
         self.current_brand = bot_data.get('currentBrand', {})
         
-        # 🎯 ENSURE BACKWARD COMPATIBILITY
+        # 🎯 MISSING FIELDS - ADD THESE:
+        self.escalation = bot_data.get('escalation', {
+            'enabled': False,
+            'escalation_email': ''
+        })
+        self.created_at = bot_data.get('createdAt')
+        self.updated_at = bot_data.get('updatedAt')
+        
+        # 🎯 ENSURE BACKWARD COMPATIBILITY WITH PROPER DEFAULTS
         if not self.brand_context:
             self.brand_context = {
                 'primaryCompany': self.company_reference,
@@ -68,6 +76,16 @@ class BotConfig:
                 'type': 'primary',
                 'reference': self.company_reference
             }
+    
+    def get_template_info(self) -> Dict[str, str]:
+        """Get template information for logging and debugging"""
+        return {
+            "personality": self.personality_type,
+            "safety": self.safety_level,
+            "company": self.company_reference,
+            "is_custom_personality": self.personality_type == "custom",
+            "is_custom_safety": self.safety_level == "custom"
+        }
         
     def to_dict(self):
         """Convert to dictionary for compatibility"""
@@ -85,19 +103,15 @@ class BotConfig:
             "personality_type": self.personality_type,
             "safety_level": self.safety_level,
             "brand_context": self.brand_context,
-            "current_brand": self.current_brand
+            "current_brand": self.current_brand,
+            # 🎯 ADD MISSING FIELDS
+            "escalation": self.escalation,
+            "files": self.files,
+            "owner_id": self.owner_id,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
         }
     
-    def get_template_info(self) -> Dict[str, str]:
-        """Get template information for logging and debugging"""
-        return {
-            "personality": self.personality_type,
-            "safety": self.safety_level,
-            "company": self.company_reference,
-            "is_custom_personality": self.personality_type == "custom",
-            "is_custom_safety": self.safety_level == "custom"
-        }
-
 async def get_bot_by_id(bot_id: str, tenant_id: str, user_id: str = None) -> Optional[BotConfig]:
     """
     Fetch bot configuration from Express server using shared JWT secret
@@ -161,7 +175,7 @@ async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str
     if bot_config:
         return bot_config
     
-    # Fallback configuration with template system defaults
+    # 🎯 UPDATED: Fallback configuration with ALL required fields
     logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
     return BotConfig({
         'id': bot_id,
@@ -169,9 +183,71 @@ async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str
         'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
         'model': 'gpt-4o-mini',
         'temperature': 0.7,
+        'fallback': 'I apologize, but I cannot answer that question based on my current knowledge.',
+        'greeting': 'Hello! How can I help you today?',
+        'guardrails': 'Please ensure all responses are accurate and appropriate.',
         'companyReference': f'Bot {bot_id}',
         'personalityType': 'professional',
-        'safetyLevel': 'standard'
+        'safetyLevel': 'standard',
+        'brandContext': {
+            'primaryCompany': f'Bot {bot_id}',
+            'verifiedBrands': [],
+            'customBrands': [],
+            'tier': 'basic',
+            'verificationStatus': 'unverified'
+        },
+        'currentBrand': {
+            'type': 'primary',
+            'reference': f'Bot {bot_id}'
+        },
+        'escalation': {
+            'enabled': False,
+            'escalation_email': ''
+        },
+        'files': [],
+        'ownerId': user_id or 'unknown'
+    })
+
+async def get_bot_config_with_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> BotConfig:
+    """
+    Get bot config with JWT authentication
+    """
+    bot_config = await get_bot_by_jwt(bot_id, jwt_token, tenant_id)
+    
+    if bot_config:
+        return bot_config
+    
+    # 🎯 UPDATED: Fallback configuration with ALL required fields
+    logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
+    return BotConfig({
+        'id': bot_id,
+        'botName': f'Bot {bot_id}',
+        'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
+        'model': 'gpt-4o-mini',
+        'temperature': 0.7,
+        'fallback': 'I apologize, but I cannot answer that question based on my current knowledge.',
+        'greeting': 'Hello! How can I help you today?',
+        'guardrails': 'Please ensure all responses are accurate and appropriate.',
+        'companyReference': f'Bot {bot_id}',
+        'personalityType': 'professional',
+        'safetyLevel': 'standard',
+        'brandContext': {
+            'primaryCompany': f'Bot {bot_id}',
+            'verifiedBrands': [],
+            'customBrands': [],
+            'tier': 'basic',
+            'verificationStatus': 'unverified'
+        },
+        'currentBrand': {
+            'type': 'primary',
+            'reference': f'Bot {bot_id}'
+        },
+        'escalation': {
+            'enabled': False,
+            'escalation_email': ''
+        },
+        'files': [],
+        'ownerId': 'unknown'
     })
 
 # python/app/models/bot.py - UPDATE get_bot_by_jwt function
@@ -183,16 +259,12 @@ async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optiona
         express_url = os.getenv('EXPRESS_SERVER_URL', 'http://localhost:4000')
         
         logger.info(f"🔍 Fetching bot config with JWT: {express_url}/api/bots/{bot_id}")
-        logger.info(f"   JWT token present: {jwt_token is not None}")
-        if jwt_token:
-            logger.info(f"   JWT token format: {'Bearer' in jwt_token}")
         
         headers = {
             'X-Tenant-ID': tenant_id,
             'Content-Type': 'application/json',
         }
         
-        # 🎯 CRITICAL FIX: Add the full Authorization header as received
         if jwt_token:
             headers['Authorization'] = jwt_token
         
@@ -210,8 +282,13 @@ async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optiona
                 bot_data = response_data['bot']
                 bot_config = BotConfig(bot_data)
                 template_info = bot_config.get_template_info()
+                
+                # 🎯 ENHANCED LOGGING
                 logger.info(f"✅ Successfully fetched bot: {bot_config.bot_name}")
                 logger.info(f"🎯 Template config: {template_info}")
+                logger.info(f"📁 Files count: {len(bot_config.files)}")
+                logger.info(f"🚨 Escalation enabled: {bot_config.escalation.get('enabled', False)}")
+                
                 return bot_config
             else:
                 logger.warning(f"❌ Response not OK: {response_data}")
@@ -234,24 +311,3 @@ async def get_bot_by_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> Optiona
         logger.error(f"💥 Error fetching bot config: {e}")
         return None
     
-async def get_bot_config_with_jwt(bot_id: str, jwt_token: str, tenant_id: str) -> BotConfig:
-    """
-    Get bot config with JWT authentication
-    """
-    bot_config = await get_bot_by_jwt(bot_id, jwt_token, tenant_id)
-    
-    if bot_config:
-        return bot_config
-    
-    # Fallback configuration with template system defaults
-    logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
-    return BotConfig({
-        'id': bot_id,
-        'botName': f'Bot {bot_id}',
-        'systemMessage': 'You are a helpful AI assistant. Answer questions based on the provided documentation.',
-        'model': 'gpt-4o-mini',
-        'temperature': 0.7,
-        'companyReference': f'Bot {bot_id}',
-        'personalityType': 'professional',
-        'safetyLevel': 'standard'
-    })

@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 
 const BotSchema = new mongoose.Schema({
-  _id: { type: String, required: true }, // nanoid
+  // _id: { type: String, required: true }, // nanoid
   botName: { type: String, required: true },
   model: { type: String, required: true },
   temperature: { type: Number, default: 0.7 },

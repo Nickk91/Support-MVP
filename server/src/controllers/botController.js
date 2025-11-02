@@ -16,11 +16,10 @@ export const createBot = async (req, res) => {
     const {
       botName,
       model,
-      companyReference, // OPTIONAL - will use user's primary company if not provided
+      companyReference,
       personalityType = "professional",
       safetyLevel = "standard",
       temperature = 0.7,
-      // Custom overrides (optional)
       systemMessage,
       guardrails,
       greeting,
@@ -37,7 +36,7 @@ export const createBot = async (req, res) => {
       userId: req.user.userId,
     });
 
-    // 🚨 STRICT VALIDATION - Updated requirements
+    // 🚨 STRICT VALIDATION
     if (!botName || !model) {
       return res.status(400).json({
         ok: false,
@@ -47,7 +46,7 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Verify user exists in MongoDB and get company info
+    // Verify user exists
     const user = await User.findOne({ _id: req.user.userId });
     if (!user) {
       console.error("❌ User not found:", req.user.userId);
@@ -58,11 +57,10 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // 🎯 NEW: Get available brands for user and validate companyReference
+    // 🎯 Get available brands and validate
     const availableBrands = getAvailableBrands(user);
     const selectedBrand = companyReference || user.companyName;
 
-    // Validate that the selected brand is available to the user
     if (!availableBrands.includes(selectedBrand)) {
       return res.status(400).json({
         ok: false,
@@ -72,7 +70,7 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Check for duplicate bot name within user's bots
+    // Check for duplicate bot name
     const duplicateBot = await Bot.findOne({
       botName: botName,
       ownerId: req.user.userId,
@@ -86,23 +84,23 @@ export const createBot = async (req, res) => {
       });
     }
 
-    // Create new bot with nanoid for ID
-    const botId = nanoid();
+    // 🎯 REMOVED: const botId = nanoid();
+    // MongoDB will now auto-generate a valid _id
 
-    // Ensure files have proper uploadedBy values
+    // Process files
     const processedFiles = (files || []).map((file) => ({
       ...file,
       uploadedBy: req.user.userId,
     }));
 
-    // 🎯 COMPOSE COMPLETE BOT CONFIG USING TEMPLATES
+    // Compose bot config
     const formData = {
       botName,
       model,
       temperature,
       personalityType,
       safetyLevel,
-      companyReference: selectedBrand, // Use validated brand
+      companyReference: selectedBrand,
       systemMessage,
       guardrails,
       greeting,
@@ -113,11 +111,10 @@ export const createBot = async (req, res) => {
 
     const botConfig = composeBotConfig(formData);
 
-    // 🎯 CREATE BOT WITH USER'S COMPANY STRUCTURE
+    // 🎯 CREATE BOT WITHOUT MANUAL _id
     const newBot = new Bot({
-      _id: botId,
+      // 🎯 REMOVED: _id: botId, - Let MongoDB handle ID generation
       ...botConfig,
-      // 🎯 UPDATED: Use user's brand structure
       brandContext: {
         primaryCompany: user.companyName,
         verifiedBrands:
@@ -138,8 +135,8 @@ export const createBot = async (req, res) => {
 
     await newBot.save();
 
-    console.log("✅ Bot created with user's company:", {
-      id: botId,
+    console.log("✅ Bot created with MongoDB _id:", {
+      id: newBot._id, // Use the auto-generated ID
       botName,
       companyReference: selectedBrand,
       personalityType: botConfig.personalityType,
@@ -147,7 +144,7 @@ export const createBot = async (req, res) => {
       ownerId: req.user.userId,
     });
 
-    // 🐍 Python RAG Integration - Register bot using centralized service
+    // 🐍 Python RAG Integration - Use newBot._id instead of botId
     let pythonRagStatus = "disconnected";
     let pythonRagError = null;
 
@@ -156,7 +153,7 @@ export const createBot = async (req, res) => {
 
       await pythonService.createBot(
         {
-          bot_id: botId,
+          bot_id: newBot._id, // Use the MongoDB-generated _id
           bot_name: botName,
           system_message: botConfig.systemMessage,
           model: model,
