@@ -4,7 +4,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {} from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import { useBotWizardStore } from "@/store/botWizardStore";
 import { Button } from "@/components/ui/button";
@@ -14,13 +13,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Edit, Save } from "lucide-react";
 
 export default function BotSafetySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
   const [selectedSafety, setSelectedSafety] = useState("lenient");
   const [hasEditedManually, setHasEditedManually] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [isEditingGuardrails, setIsEditingGuardrails] = useState(false);
+  const [isEditingFallback, setIsEditingFallback] = useState(false);
+  const [hasUnsavedGuardrailsChanges, setHasUnsavedGuardrailsChanges] =
+    useState(false);
+  const [hasUnsavedFallbackChanges, setHasUnsavedFallbackChanges] =
+    useState(false);
   const initialRender = useRef(true);
 
   // Set initial safety level and populate template content
@@ -39,7 +44,11 @@ export default function BotSafetySettings({ bot, onChange }) {
         // For EXISTING bots, check if content has been customized
         let isCustom = false;
         if (!isNewBot) {
-          isCustom = checkIfCustom(safetyLevel, template.guardrails);
+          isCustom = checkIfCustom(
+            safetyLevel,
+            template.guardrails,
+            template.fallback
+          );
         }
         setHasEditedManually(isCustom);
 
@@ -84,29 +93,51 @@ export default function BotSafetySettings({ bot, onChange }) {
       const template = templates.safety[safetyLevel];
 
       if (template && safetyLevel !== "custom") {
-        const isCustom = bot.guardrails.trim() !== template.guardrails.trim();
+        const isCustom = checkIfCustom(
+          safetyLevel,
+          template.guardrails,
+          template.fallback
+        );
         setHasEditedManually(isCustom);
       } else {
         setHasEditedManually(true);
       }
     }
-  }, [bot?.guardrails, bot?.safetyLevel, initialized, templates.safety]);
+  }, [
+    bot?.guardrails,
+    bot?.fallback,
+    bot?.safetyLevel,
+    initialized,
+    templates.safety,
+  ]);
 
   // Check if the current content matches the template
-  const checkIfCustom = (safetyKey, expectedGuardrails = null) => {
-    if (!bot?.guardrails || safetyKey === "custom") return true;
+  const checkIfCustom = (
+    safetyKey,
+    expectedGuardrails = null,
+    expectedFallback = null
+  ) => {
+    if (safetyKey === "custom") return true;
 
     const template = templates.safety[safetyKey];
     if (!template) return true;
 
     const templateGuardrails = expectedGuardrails || template.guardrails;
+    const templateFallback = expectedFallback || template.fallback;
 
     // Normalize both messages for comparison (remove extra whitespace)
     const normalizeMessage = (msg) => msg.trim().replace(/\s+/g, " ");
 
-    return (
-      normalizeMessage(bot.guardrails) !== normalizeMessage(templateGuardrails)
-    );
+    const guardrailsCustom =
+      bot?.guardrails &&
+      normalizeMessage(bot.guardrails) !== normalizeMessage(templateGuardrails);
+
+    const fallbackCustom =
+      bot?.fallback &&
+      normalizeMessage(bot.fallback) !== normalizeMessage(templateFallback);
+
+    // Only mark as custom if guardrails are edited (not just fallback)
+    return guardrailsCustom;
   };
 
   const handleChange = (field, value) => {
@@ -123,17 +154,21 @@ export default function BotSafetySettings({ bot, onChange }) {
   };
 
   const handleGuardrailsChange = (value) => {
-    setHasEditedManually(true);
+    setHasUnsavedGuardrailsChanges(true);
     handleChange("guardrails", value);
   };
 
   const handleFallbackChange = (value) => {
-    setHasEditedManually(true);
+    setHasUnsavedFallbackChanges(true);
     handleChange("fallback", value);
   };
 
   const handleSafetyChange = (safetyKey) => {
     setSelectedSafety(safetyKey);
+    setIsEditingGuardrails(false);
+    setIsEditingFallback(false);
+    setHasUnsavedGuardrailsChanges(false);
+    setHasUnsavedFallbackChanges(false);
 
     const template = templates.safety[safetyKey];
 
@@ -145,8 +180,40 @@ export default function BotSafetySettings({ bot, onChange }) {
       });
       setHasEditedManually(false);
     } else {
-      onChange({ safetyLevel: "custom" });
+      // When switching to custom, use the custom template content
+      const customTemplate = templates.safety.custom;
+      onChange({
+        guardrails: customTemplate.guardrails,
+        fallback: customTemplate.fallback,
+        safetyLevel: "custom",
+      });
       setHasEditedManually(true);
+      setIsEditingGuardrails(true);
+    }
+  };
+
+  const handleGuardrailsEditToggle = () => {
+    if (isEditingGuardrails) {
+      // Save action - mark as custom and exit edit mode
+      setIsEditingGuardrails(false);
+      setHasEditedManually(true);
+      setHasUnsavedGuardrailsChanges(false);
+      // Also update safetyLevel to custom when saving guardrails edits
+      onChange({ safetyLevel: "custom" });
+    } else {
+      // Enter edit mode
+      setIsEditingGuardrails(true);
+    }
+  };
+
+  const handleFallbackEditToggle = () => {
+    if (isEditingFallback) {
+      // Save action - just exit edit mode (doesn't mark as custom)
+      setIsEditingFallback(false);
+      setHasUnsavedFallbackChanges(false);
+    } else {
+      // Enter edit mode
+      setIsEditingFallback(true);
     }
   };
 
@@ -155,6 +222,28 @@ export default function BotSafetySettings({ bot, onChange }) {
   // Get the current template for tooltip content
   const currentTemplate =
     templates.safety[selectedSafety] || templates.safety.lenient;
+
+  // Determine states for styling and behavior
+  const showGuardrailsEditButton =
+    !hasEditedManually && selectedSafety !== "custom";
+  const showFallbackEditButton = selectedSafety !== "custom";
+  const isCustomSafety = selectedSafety === "custom" || hasEditedManually;
+  const isGuardrailsReadOnly = !isEditingGuardrails && !isCustomSafety;
+  const isFallbackReadOnly = !isEditingFallback && !isCustomSafety;
+
+  const textareaClassName = (isReadOnly) =>
+    `font-mono text-sm resize-vertical ${
+      isReadOnly
+        ? "text-muted-foreground bg-muted/30 border-muted"
+        : "text-foreground bg-background border-border"
+    }`;
+
+  // Determine if we should show the edit/save buttons
+  const shouldShowGuardrailsEditSaveButton =
+    showGuardrailsEditButton ||
+    (isEditingGuardrails && hasUnsavedGuardrailsChanges);
+  const shouldShowFallbackEditSaveButton =
+    showFallbackEditButton || (isEditingFallback && hasUnsavedFallbackChanges);
 
   return (
     <div className="space-y-6">
@@ -216,24 +305,48 @@ export default function BotSafetySettings({ bot, onChange }) {
 
           {/* Guardrails Editor */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
-              <TooltipProvider>
-                <Tooltip delayDuration={delayDuration}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
-                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-sm">
-                    <p className="text-sm">
-                      Rules that prevent your bot from providing harmful,
-                      inappropriate, or off-topic responses. Essential for
-                      safety and compliance.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
+                <TooltipProvider>
+                  <Tooltip delayDuration={delayDuration}>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p className="text-sm">
+                        Rules that prevent your bot from providing harmful,
+                        inappropriate, or off-topic responses. Essential for
+                        safety and compliance.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+
+              {/* Guardrails Edit/Save Button */}
+              {shouldShowGuardrailsEditSaveButton && (
+                <Button
+                  variant={isEditingGuardrails ? "default" : "outline"}
+                  size="sm"
+                  onClick={handleGuardrailsEditToggle}
+                  className="flex items-center gap-2"
+                >
+                  {isEditingGuardrails ? (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save as Custom
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="h-4 w-4" />
+                      Edit
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             <Textarea
               id="guardrails"
@@ -241,7 +354,8 @@ export default function BotSafetySettings({ bot, onChange }) {
               onChange={(e) => handleGuardrailsChange(e.target.value)}
               placeholder="Rules and restrictions to keep your bot safe and on-brand..."
               rows={6}
-              className="font-mono text-sm resize-vertical"
+              className={textareaClassName(isGuardrailsReadOnly)}
+              readOnly={isGuardrailsReadOnly}
             />
             <p className="text-sm text-muted-foreground">
               Rules and restrictions to keep your bot safe and on-brand
@@ -251,29 +365,65 @@ export default function BotSafetySettings({ bot, onChange }) {
                   • Customized (will save as custom template)
                 </span>
               )}
+              {hasUnsavedGuardrailsChanges && (
+                <span className="text-orange-600 font-medium">
+                  {" "}
+                  • Unsaved changes
+                </span>
+              )}
+              {isGuardrailsReadOnly && !hasEditedManually && (
+                <span className="text-blue-600 font-medium">
+                  {" "}
+                  • Read-only (click Edit to customize)
+                </span>
+              )}
             </p>
           </div>
 
           {/* Fallback Response Editor */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="fallback">Fallback Response</Label>
-              <TooltipProvider>
-                <Tooltip delayDuration={delayDuration}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
-                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-sm">
-                    <p className="text-sm">
-                      What your bot says when it doesn't know the answer or
-                      can't help with a question. Important for managing user
-                      expectations.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="fallback">Fallback Response</Label>
+                <TooltipProvider>
+                  <Tooltip delayDuration={delayDuration}>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p className="text-sm">
+                        What your bot says when it doesn't know the answer or
+                        can't help with a question. Important for managing user
+                        expectations.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+
+              {/* Fallback Edit/Save Button */}
+              {shouldShowFallbackEditSaveButton && (
+                <Button
+                  variant={isEditingFallback ? "default" : "outline"}
+                  size="sm"
+                  onClick={handleFallbackEditToggle}
+                  className="flex items-center gap-2"
+                >
+                  {isEditingFallback ? (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="h-4 w-4" />
+                      Edit
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             <Textarea
               id="fallback"
@@ -281,10 +431,23 @@ export default function BotSafetySettings({ bot, onChange }) {
               onChange={(e) => handleFallbackChange(e.target.value)}
               placeholder="What to say when the bot doesn't know the answer..."
               rows={3}
-              className="font-mono text-sm resize-vertical"
+              className={textareaClassName(isFallbackReadOnly)}
+              readOnly={isFallbackReadOnly}
             />
             <p className="text-sm text-muted-foreground">
               Response when the bot cannot answer a question
+              {hasUnsavedFallbackChanges && (
+                <span className="text-orange-600 font-medium">
+                  {" "}
+                  • Unsaved changes
+                </span>
+              )}
+              {isFallbackReadOnly && !hasEditedManually && (
+                <span className="text-blue-600 font-medium">
+                  {" "}
+                  • Read-only (click Edit to customize)
+                </span>
+              )}
             </p>
           </div>
         </CardContent>

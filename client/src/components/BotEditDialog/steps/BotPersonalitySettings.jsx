@@ -13,13 +13,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Edit, Save } from "lucide-react";
 
 export default function BotPersonalitySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
   const [selectedPersonality, setSelectedPersonality] = useState("friendly");
   const [hasEditedManually, setHasEditedManually] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [isEditingSystem, setIsEditingSystem] = useState(false);
+  const [isEditingGreeting, setIsEditingGreeting] = useState(false);
+  const [hasUnsavedSystemChanges, setHasUnsavedSystemChanges] = useState(false);
+  const [hasUnsavedGreetingChanges, setHasUnsavedGreetingChanges] =
+    useState(false);
   const initialRender = useRef(true);
 
   // Set initial personality and populate template content
@@ -54,7 +59,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
         // For EXISTING bots, check if content has been customized
         let isCustom = false;
         if (!isNewBot) {
-          isCustom = checkIfCustom(personalityType, systemMessage);
+          isCustom = checkIfCustom(personalityType, systemMessage, greeting);
         }
         setHasEditedManually(isCustom);
 
@@ -92,19 +97,13 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     }
   }, [bot, onChange, templates.personality, initialized]);
 
-  // Debug effect - remove this once everything works
-  useEffect(() => {
-    console.log("Selected Personality:", selectedPersonality);
-    console.log("Has Edited Manually:", hasEditedManually);
-    console.log(
-      "Available Templates:",
-      Object.keys(templates.personality || {})
-    );
-  }, [selectedPersonality, hasEditedManually, templates.personality]);
-
   // Check if the current content matches the template
-  const checkIfCustom = (personalityKey, expectedSystemMessage = null) => {
-    if (!bot?.systemMessage || personalityKey === "custom") return true;
+  const checkIfCustom = (
+    personalityKey,
+    expectedSystemMessage = null,
+    expectedGreeting = null
+  ) => {
+    if (personalityKey === "custom") return true;
 
     const template = templates.personality[personalityKey];
     if (!template) return true;
@@ -115,13 +114,26 @@ export default function BotPersonalitySettings({ bot, onChange }) {
         .replace(/{botName}/g, bot?.botName || "YourBot")
         .replace(/{companyReference}/g, bot?.companyReference || "our company");
 
+    const templateGreeting =
+      expectedGreeting ||
+      template.greeting
+        .replace(/{botName}/g, bot?.botName || "YourBot")
+        .replace(/{companyReference}/g, bot?.companyReference || "our company");
+
     // Normalize both messages for comparison (remove extra whitespace)
     const normalizeMessage = (msg) => msg.trim().replace(/\s+/g, " ");
 
-    return (
+    const systemCustom =
+      bot?.systemMessage &&
       normalizeMessage(bot.systemMessage) !==
-      normalizeMessage(templateSystemMessage)
-    );
+        normalizeMessage(templateSystemMessage);
+
+    const greetingCustom =
+      bot?.greeting &&
+      normalizeMessage(bot.greeting) !== normalizeMessage(templateGreeting);
+
+    // Only mark as custom if system message is edited (not just greeting)
+    return systemCustom;
   };
 
   const handleChange = (field, value) => {
@@ -133,17 +145,21 @@ export default function BotPersonalitySettings({ bot, onChange }) {
   };
 
   const handleSystemMessageChange = (value) => {
-    setHasEditedManually(true);
+    setHasUnsavedSystemChanges(true);
     handleChange("systemMessage", value);
   };
 
   const handleGreetingChange = (value) => {
-    setHasEditedManually(true);
+    setHasUnsavedGreetingChanges(true);
     handleChange("greeting", value);
   };
 
   const handlePersonalityChange = (personalityKey) => {
     setSelectedPersonality(personalityKey);
+    setIsEditingSystem(false);
+    setIsEditingGreeting(false);
+    setHasUnsavedSystemChanges(false);
+    setHasUnsavedGreetingChanges(false);
 
     const template = templates.personality[personalityKey];
 
@@ -163,8 +179,48 @@ export default function BotPersonalitySettings({ bot, onChange }) {
       });
       setHasEditedManually(false);
     } else {
-      onChange({ personalityType: "custom" });
+      // When switching to custom, use the custom template content
+      const customTemplate = templates.personality.custom;
+      const systemMessage = customTemplate.systemMessage
+        .replace(/{botName}/g, bot?.botName || "YourBot")
+        .replace(/{companyReference}/g, bot?.companyReference || "our company");
+
+      const greeting = customTemplate.greeting
+        .replace(/{botName}/g, bot?.botName || "YourBot")
+        .replace(/{companyReference}/g, bot?.companyReference || "our company");
+
+      onChange({
+        systemMessage,
+        greeting,
+        personalityType: "custom",
+      });
       setHasEditedManually(true);
+      setIsEditingSystem(true);
+    }
+  };
+
+  const handleSystemEditToggle = () => {
+    if (isEditingSystem) {
+      // Save action - mark as custom and exit edit mode
+      setIsEditingSystem(false);
+      setHasEditedManually(true);
+      setHasUnsavedSystemChanges(false);
+      // Also update personalityType to custom when saving system message edits
+      onChange({ personalityType: "custom" });
+    } else {
+      // Enter edit mode
+      setIsEditingSystem(true);
+    }
+  };
+
+  const handleGreetingEditToggle = () => {
+    if (isEditingGreeting) {
+      // Save action - just exit edit mode (doesn't mark as custom)
+      setIsEditingGreeting(false);
+      setHasUnsavedGreetingChanges(false);
+    } else {
+      // Enter edit mode
+      setIsEditingGreeting(true);
     }
   };
 
@@ -180,6 +236,29 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     templates.personality.friendly;
 
   const delayDuration = 300;
+
+  // Determine states for styling and behavior
+  const showSystemEditButton =
+    !hasEditedManually && selectedPersonality !== "custom";
+  const showGreetingEditButton = selectedPersonality !== "custom";
+  const isCustomPersonality =
+    selectedPersonality === "custom" || hasEditedManually;
+  const isSystemReadOnly = !isEditingSystem && !isCustomPersonality;
+  const isGreetingReadOnly = !isEditingGreeting && !isCustomPersonality;
+
+  const textareaClassName = (isReadOnly) =>
+    `font-mono text-sm resize-vertical ${
+      isReadOnly
+        ? "text-muted-foreground bg-muted/30 border-muted"
+        : "text-foreground bg-background border-border"
+    }`;
+
+  // Determine if we should show the edit/save buttons
+  const shouldShowSystemEditSaveButton =
+    showSystemEditButton || (isEditingSystem && hasUnsavedSystemChanges);
+  const shouldShowGreetingEditSaveButton =
+    showGreetingEditButton || (isEditingGreeting && hasUnsavedGreetingChanges);
+
   return (
     <div className="space-y-6">
       <Card>
@@ -240,32 +319,58 @@ export default function BotPersonalitySettings({ bot, onChange }) {
 
           {/* System Message Editor */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="systemMessage">System Message</Label>
-              <TooltipProvider>
-                <Tooltip delayDuration={delayDuration}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
-                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-sm">
-                    <p className="text-sm">
-                      This defines the core personality and behavior of your
-                      assistant. It's the most important setting for shaping how
-                      your bot responds to users.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="systemMessage">System Message</Label>
+                <TooltipProvider>
+                  <Tooltip delayDuration={delayDuration}>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p className="text-sm">
+                        This defines the core personality and behavior of your
+                        assistant. It's the most important setting for shaping
+                        how your bot responds to users.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+
+              {/* System Edit/Save Button */}
+              {shouldShowSystemEditSaveButton && (
+                <Button
+                  variant={isEditingSystem ? "default" : "outline"}
+                  size="sm"
+                  onClick={handleSystemEditToggle}
+                  className="flex items-center gap-2"
+                >
+                  {isEditingSystem ? (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save as Custom
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="h-4 w-4" />
+                      Edit
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
+
             <Textarea
               id="systemMessage"
               value={bot?.systemMessage || ""}
               onChange={(e) => handleSystemMessageChange(e.target.value)}
               placeholder="Define your assistant's personality and behavior..."
               rows={8}
-              className="font-mono text-sm resize-vertical"
+              className={textareaClassName(isSystemReadOnly)}
+              readOnly={isSystemReadOnly}
             />
             <p className="text-sm text-muted-foreground">
               This message defines the bot's personality and primary behavior.
@@ -275,28 +380,65 @@ export default function BotPersonalitySettings({ bot, onChange }) {
                   • Customized (will save as custom template)
                 </span>
               )}
+              {hasUnsavedSystemChanges && (
+                <span className="text-orange-600 font-medium">
+                  {" "}
+                  • Unsaved changes
+                </span>
+              )}
+              {isSystemReadOnly && !hasEditedManually && (
+                <span className="text-blue-600 font-medium">
+                  {" "}
+                  • Read-only (click Edit to customize)
+                </span>
+              )}
             </p>
           </div>
 
-          {/* NEW: Greeting Editor */}
+          {/* Greeting Editor */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="greeting">Greeting Message</Label>
-              <TooltipProvider>
-                <Tooltip delayDuration={delayDuration}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
-                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-sm">
-                    <p className="text-sm">
-                      The first message users see when they start a conversation
-                      with your bot. Sets the tone for the interaction.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="greeting">Greeting Message</Label>
+                <TooltipProvider>
+                  <Tooltip delayDuration={delayDuration}>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p className="text-sm">
+                        The first message users see when they start a
+                        conversation with your bot. Sets the tone for the
+                        interaction.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+
+              {/* Greeting Edit/Save Button */}
+              {shouldShowGreetingEditSaveButton && (
+                <Button
+                  variant={isEditingGreeting ? "default" : "outline"}
+                  size="sm"
+                  onClick={handleGreetingEditToggle}
+                  className="flex items-center gap-2"
+                >
+                  {isEditingGreeting ? (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="h-4 w-4" />
+                      Edit
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             <Textarea
               id="greeting"
@@ -304,10 +446,23 @@ export default function BotPersonalitySettings({ bot, onChange }) {
               onChange={(e) => handleGreetingChange(e.target.value)}
               placeholder="What your bot says when a user starts a conversation..."
               rows={3}
-              className="font-mono text-sm resize-vertical"
+              className={textareaClassName(isGreetingReadOnly)}
+              readOnly={isGreetingReadOnly}
             />
             <p className="text-sm text-muted-foreground">
               The first message users see when starting a conversation.
+              {hasUnsavedGreetingChanges && (
+                <span className="text-orange-600 font-medium">
+                  {" "}
+                  • Unsaved changes
+                </span>
+              )}
+              {isGreetingReadOnly && !hasEditedManually && (
+                <span className="text-blue-600 font-medium">
+                  {" "}
+                  • Read-only (click Edit to customize)
+                </span>
+              )}
             </p>
           </div>
         </CardContent>
