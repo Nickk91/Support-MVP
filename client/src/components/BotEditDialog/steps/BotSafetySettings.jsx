@@ -4,13 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import {} from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import { useBotWizardStore } from "@/store/botWizardStore";
 import { Button } from "@/components/ui/button";
@@ -175,22 +169,6 @@ export default function BotSafetySettings({ bot, onChange }) {
             <Label className="font-medium whitespace-nowrap">
               Safety Template:
             </Label>
-            <Select
-              value={hasEditedManually ? "custom" : selectedSafety}
-              onValueChange={handleSafetyChange}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(templates.safety).map(([key, template]) => (
-                  <SelectItem key={key} value={key}>
-                    {template.name}
-                  </SelectItem>
-                ))}
-                <SelectItem value="custom">Custom Safety Rules</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
 
           {/* Template Cards for quick selection */}
