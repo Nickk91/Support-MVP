@@ -25,7 +25,12 @@ export default function BotPersonalitySettings({ bot, onChange }) {
   // Set initial personality and populate template content
   useEffect(() => {
     if (!initialized && templates.personality) {
-      const personalityType = bot?.personalityType || "friendly";
+      // Check if this is a new bot (no ID) or existing bot
+      const isNewBot = !bot?.id;
+      const personalityType = isNewBot
+        ? "friendly"
+        : bot?.personalityType || "friendly";
+
       setSelectedPersonality(personalityType);
 
       const template = templates.personality[personalityType];
@@ -45,22 +50,27 @@ export default function BotPersonalitySettings({ bot, onChange }) {
             bot?.companyReference || "our company"
           );
 
-        // For initial render, we assume it's not custom unless we detect otherwise
-        const isCustom = initialRender.current
-          ? false
-          : checkIfCustom(personalityType, systemMessage);
+        // For NEW bots, always start as not custom
+        // For EXISTING bots, check if content has been customized
+        let isCustom = false;
+        if (!isNewBot) {
+          isCustom = checkIfCustom(personalityType, systemMessage);
+        }
         setHasEditedManually(isCustom);
 
         // Only update if we're creating a new bot or fields are empty
-        // For existing bots, preserve their content
         const updates = {
           personalityType,
         };
 
         const shouldUpdateSystemMessage =
-          !bot?.systemMessage || (initialRender.current && !bot.systemMessage);
+          isNewBot ||
+          !bot?.systemMessage ||
+          (initialRender.current && !bot.systemMessage);
         const shouldUpdateGreeting =
-          !bot?.greeting || (initialRender.current && !bot.greeting);
+          isNewBot ||
+          !bot?.greeting ||
+          (initialRender.current && !bot.greeting);
 
         if (shouldUpdateSystemMessage) {
           updates.systemMessage = systemMessage;
@@ -82,33 +92,15 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     }
   }, [bot, onChange, templates.personality, initialized]);
 
-  // Separate effect to check for custom content after the initial content is set
+  // Debug effect - remove this once everything works
   useEffect(() => {
-    if (initialized && bot?.systemMessage) {
-      const personalityType = bot.personalityType || "friendly";
-      const template = templates.personality[personalityType];
-
-      if (template && personalityType !== "custom") {
-        const expectedSystemMessage = template.systemMessage
-          .replace(/{botName}/g, bot?.botName || "YourBot")
-          .replace(
-            /{companyReference}/g,
-            bot?.companyReference || "our company"
-          );
-
-        const isCustom =
-          bot.systemMessage.trim() !== expectedSystemMessage.trim();
-        setHasEditedManually(isCustom);
-      } else {
-        setHasEditedManually(true);
-      }
-    }
-  }, [
-    bot?.systemMessage,
-    bot?.personalityType,
-    initialized,
-    templates.personality,
-  ]);
+    console.log("Selected Personality:", selectedPersonality);
+    console.log("Has Edited Manually:", hasEditedManually);
+    console.log(
+      "Available Templates:",
+      Object.keys(templates.personality || {})
+    );
+  }, [selectedPersonality, hasEditedManually, templates.personality]);
 
   // Check if the current content matches the template
   const checkIfCustom = (personalityKey, expectedSystemMessage = null) => {
@@ -123,7 +115,13 @@ export default function BotPersonalitySettings({ bot, onChange }) {
         .replace(/{botName}/g, bot?.botName || "YourBot")
         .replace(/{companyReference}/g, bot?.companyReference || "our company");
 
-    return bot.systemMessage.trim() !== templateSystemMessage.trim();
+    // Normalize both messages for comparison (remove extra whitespace)
+    const normalizeMessage = (msg) => msg.trim().replace(/\s+/g, " ");
+
+    return (
+      normalizeMessage(bot.systemMessage) !==
+      normalizeMessage(templateSystemMessage)
+    );
   };
 
   const handleChange = (field, value) => {
