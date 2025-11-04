@@ -109,3 +109,23 @@ body,
     animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
+.grid-artifact-fix {
+  /* create a new stacking/paint context and isolate blending */
+  isolation: isolate;
+  contain: paint;
+  background: hsl(var(--background)) !important;
+  /* promote to its own layer to avoid diagonal banding on light bg */
+  transform: translateZ(0);
+  will-change: transform;
+  /* hard-stop any accidental gradients/pseudo backgrounds */
+  background-image: none !important;
+}
+.grid-artifact-fix::before,
+.grid-artifact-fix::after {
+  content: none !important;
+}
+
+/* children: avoid bleed into grid gap during compositing */
+.grid-artifact-fix > * {
+  background-clip: padding-box;
+}
