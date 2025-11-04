@@ -181,6 +181,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     templates.personality[selectedPersonality] ||
     templates.personality.friendly;
 
+  const delayDuration = 300;
   return (
     <div className="space-y-6">
       <Card>
@@ -188,7 +189,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
           <div className="flex items-center gap-2">
             <CardTitle className="text-lg">Personality Style</CardTitle>
             <TooltipProvider>
-              <Tooltip>
+              <Tooltip delayDuration={delayDuration}>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                     <HelpCircle className="h-4 w-4 text-muted-foreground" />
@@ -244,7 +245,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
             <div className="flex items-center gap-2">
               <Label htmlFor="systemMessage">System Message</Label>
               <TooltipProvider>
-                <Tooltip>
+                <Tooltip delayDuration={delayDuration}>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />
@@ -284,7 +285,7 @@ export default function BotPersonalitySettings({ bot, onChange }) {
             <div className="flex items-center gap-2">
               <Label htmlFor="greeting">Greeting Message</Label>
               <TooltipProvider>
-                <Tooltip>
+                <Tooltip delayDuration={delayDuration}>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />

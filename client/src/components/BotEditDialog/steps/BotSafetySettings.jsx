@@ -136,6 +136,8 @@ export default function BotSafetySettings({ bot, onChange }) {
     }
   };
 
+  const delayDuration = 300;
+
   // Get the current template for tooltip content
   const currentTemplate =
     templates.safety[selectedSafety] || templates.safety.standard;
@@ -147,7 +149,7 @@ export default function BotSafetySettings({ bot, onChange }) {
           <div className="flex items-center gap-2">
             <CardTitle className="text-lg">Safety & Boundaries</CardTitle>
             <TooltipProvider>
-              <Tooltip>
+              <Tooltip delayDuration={delayDuration}>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                     <HelpCircle className="h-4 w-4 text-muted-foreground" />
@@ -203,7 +205,7 @@ export default function BotSafetySettings({ bot, onChange }) {
             <div className="flex items-center gap-2">
               <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
               <TooltipProvider>
-                <Tooltip>
+                <Tooltip delayDuration={delayDuration}>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />
@@ -243,7 +245,7 @@ export default function BotSafetySettings({ bot, onChange }) {
             <div className="flex items-center gap-2">
               <Label htmlFor="fallback">Fallback Response</Label>
               <TooltipProvider>
-                <Tooltip>
+                <Tooltip delayDuration={delayDuration}>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />
