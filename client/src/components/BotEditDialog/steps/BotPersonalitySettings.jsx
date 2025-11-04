@@ -2,13 +2,7 @@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import {} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { useState, useEffect, useRef } from "react";
 import { useBotWizardStore } from "@/store/botWizardStore";
@@ -216,24 +210,6 @@ export default function BotPersonalitySettings({ bot, onChange }) {
             <Label className="font-medium whitespace-nowrap">
               Personality Template:
             </Label>
-            <Select
-              value={hasEditedManually ? "custom" : selectedPersonality}
-              onValueChange={handlePersonalityChange}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(templates.personality).map(
-                  ([key, template]) => (
-                    <SelectItem key={key} value={key}>
-                      {template.name}
-                    </SelectItem>
-                  )
-                )}
-                <SelectItem value="custom">Custom Personality</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
 
           {/* Template Cards for quick selection */}
