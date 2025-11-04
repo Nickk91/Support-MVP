@@ -18,7 +18,7 @@ import { HelpCircle } from "lucide-react";
 
 export default function BotSafetySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
-  const [selectedSafety, setSelectedSafety] = useState("standard");
+  const [selectedSafety, setSelectedSafety] = useState("lenient");
   const [hasEditedManually, setHasEditedManually] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const initialRender = useRef(true);
@@ -26,28 +26,36 @@ export default function BotSafetySettings({ bot, onChange }) {
   // Set initial safety level and populate template content
   useEffect(() => {
     if (!initialized && templates.safety) {
-      const safetyLevel = bot?.safetyLevel || "standard";
+      // Check if this is a new bot (no ID) or existing bot
+      const isNewBot = !bot?.id;
+      const safetyLevel = isNewBot ? "lenient" : bot?.safetyLevel || "lenient";
+
       setSelectedSafety(safetyLevel);
 
       const template = templates.safety[safetyLevel];
 
       if (template) {
-        // For initial render, we assume it's not custom unless we detect otherwise
-        const isCustom = initialRender.current
-          ? false
-          : checkIfCustom(safetyLevel, template.guardrails);
+        // For NEW bots, always start as not custom
+        // For EXISTING bots, check if content has been customized
+        let isCustom = false;
+        if (!isNewBot) {
+          isCustom = checkIfCustom(safetyLevel, template.guardrails);
+        }
         setHasEditedManually(isCustom);
 
         // Only update if we're creating a new bot or fields are empty
-        // For existing bots, preserve their content
         const updates = {
           safetyLevel,
         };
 
         const shouldUpdateGuardrails =
-          !bot?.guardrails || (initialRender.current && !bot.guardrails);
+          isNewBot ||
+          !bot?.guardrails ||
+          (initialRender.current && !bot.guardrails);
         const shouldUpdateFallback =
-          !bot?.fallback || (initialRender.current && !bot.fallback);
+          isNewBot ||
+          !bot?.fallback ||
+          (initialRender.current && !bot.fallback);
 
         if (shouldUpdateGuardrails) {
           updates.guardrails = template.guardrails;
@@ -72,7 +80,7 @@ export default function BotSafetySettings({ bot, onChange }) {
   // Separate effect to check for custom content after the initial content is set
   useEffect(() => {
     if (initialized && bot?.guardrails) {
-      const safetyLevel = bot.safetyLevel || "standard";
+      const safetyLevel = bot.safetyLevel || "lenient";
       const template = templates.safety[safetyLevel];
 
       if (template && safetyLevel !== "custom") {
@@ -92,7 +100,13 @@ export default function BotSafetySettings({ bot, onChange }) {
     if (!template) return true;
 
     const templateGuardrails = expectedGuardrails || template.guardrails;
-    return bot.guardrails.trim() !== templateGuardrails.trim();
+
+    // Normalize both messages for comparison (remove extra whitespace)
+    const normalizeMessage = (msg) => msg.trim().replace(/\s+/g, " ");
+
+    return (
+      normalizeMessage(bot.guardrails) !== normalizeMessage(templateGuardrails)
+    );
   };
 
   const handleChange = (field, value) => {
@@ -136,9 +150,11 @@ export default function BotSafetySettings({ bot, onChange }) {
     }
   };
 
+  const delayDuration = 300;
+
   // Get the current template for tooltip content
   const currentTemplate =
-    templates.safety[selectedSafety] || templates.safety.standard;
+    templates.safety[selectedSafety] || templates.safety.lenient;
 
   return (
     <div className="space-y-6">
@@ -147,7 +163,7 @@ export default function BotSafetySettings({ bot, onChange }) {
           <div className="flex items-center gap-2">
             <CardTitle className="text-lg">Safety & Boundaries</CardTitle>
             <TooltipProvider>
-              <Tooltip>
+              <Tooltip delayDuration={delayDuration}>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                     <HelpCircle className="h-4 w-4 text-muted-foreground" />
@@ -203,7 +219,7 @@ export default function BotSafetySettings({ bot, onChange }) {
             <div className="flex items-center gap-2">
               <Label htmlFor="guardrails">Guardrails & Restrictions</Label>
               <TooltipProvider>
-                <Tooltip>
+                <Tooltip delayDuration={delayDuration}>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />
@@ -243,7 +259,7 @@ export default function BotSafetySettings({ bot, onChange }) {
             <div className="flex items-center gap-2">
               <Label htmlFor="fallback">Fallback Response</Label>
               <TooltipProvider>
-                <Tooltip>
+                <Tooltip delayDuration={delayDuration}>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />
