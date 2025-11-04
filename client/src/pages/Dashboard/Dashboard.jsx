@@ -76,11 +76,23 @@ export default function Dashboard() {
     console.log("🔍 Bots state updated:", bots);
   }, [bots]);
 
+  // In your fetchUserBots function - UPDATE this part:
   const fetchUserBots = async (showRefresh = false) => {
     try {
       if (showRefresh) {
         setRefreshing(true);
-        toast.loading("Refreshing bots...", { id: "refresh" });
+        // Use toast.promise for better management
+        await toast.promise(
+          new Promise((resolve) => {
+            // Your refresh logic will go here
+            resolve();
+          }),
+          {
+            loading: "Refreshing bots...",
+            success: "Bots refreshed successfully",
+            error: "Failed to refresh bots",
+          }
+        );
       } else {
         setLoading(true);
       }
@@ -88,30 +100,14 @@ export default function Dashboard() {
 
       console.log("🔍 Fetching bots from API...");
       const response = await api.get("/bots");
-      console.log("🔍 Full API Response:", response);
-      console.log("🔍 API Response data:", response.data);
-      console.log("🔍 API Response bots:", response.data.bots);
-      console.log("🔍 Is bots array?", Array.isArray(response.data.bots));
 
       if (response.data.ok) {
         const botsArray = Array.isArray(response.data.bots)
           ? response.data.bots
           : [];
-        console.log("🔍 Setting bots array:", botsArray);
-
-        // DEBUG: Check each bot's files
-        botsArray.forEach((bot, index) => {
-          console.log(`🔍 Bot ${index} (${bot.botName}):`, {
-            id: bot._id,
-            filesCount: bot.files?.length,
-            files: bot.files,
-          });
-        });
-
         setBots(botsArray);
-        if (showRefresh) {
-          toast.success("Bots refreshed successfully", { id: "refresh" });
-        }
+
+        // Remove the manual toast.success here since we're using toast.promise
       } else {
         throw new Error(response.data.message || "Failed to fetch bots");
       }
@@ -119,7 +115,8 @@ export default function Dashboard() {
       console.error("Failed to fetch bots:", error);
       const errorMessage = error.message || "Failed to load bots";
       setError(errorMessage);
-      toast.error(errorMessage, { id: showRefresh ? "refresh" : undefined });
+      // Let toast.promise handle the error display
+      throw error; // Re-throw to let toast.promise catch it
     } finally {
       setLoading(false);
       setRefreshing(false);
