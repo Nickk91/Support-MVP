@@ -18,127 +18,70 @@ import { HelpCircle, Edit, Save } from "lucide-react";
 export default function BotSafetySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
   const [selectedSafety, setSelectedSafety] = useState("lenient");
-  const [hasEditedManually, setHasEditedManually] = useState(false);
-  const [initialized, setInitialized] = useState(false);
   const [isEditingGuardrails, setIsEditingGuardrails] = useState(false);
   const [isEditingFallback, setIsEditingFallback] = useState(false);
   const [hasUnsavedGuardrailsChanges, setHasUnsavedGuardrailsChanges] =
     useState(false);
   const [hasUnsavedFallbackChanges, setHasUnsavedFallbackChanges] =
     useState(false);
-  const initialRender = useRef(true);
+  const initialized = useRef(false);
 
-  // Set initial safety level and populate template content
-  useEffect(() => {
-    if (!initialized && templates.safety) {
-      // Check if this is a new bot (no ID) or existing bot
-      const isNewBot = !bot?.id;
-      const safetyLevel = isNewBot ? "lenient" : bot?.safetyLevel || "lenient";
-
-      setSelectedSafety(safetyLevel);
-
-      const template = templates.safety[safetyLevel];
-
-      if (template) {
-        // For NEW bots, always start as not custom
-        // For EXISTING bots, check if content has been customized
-        let isCustom = false;
-        if (!isNewBot) {
-          isCustom = checkIfCustom(
-            safetyLevel,
-            template.guardrails,
-            template.fallback
-          );
-        }
-        setHasEditedManually(isCustom);
-
-        // Only update if we're creating a new bot or fields are empty
-        const updates = {
-          safetyLevel,
-        };
-
-        const shouldUpdateGuardrails =
-          isNewBot ||
-          !bot?.guardrails ||
-          (initialRender.current && !bot.guardrails);
-        const shouldUpdateFallback =
-          isNewBot ||
-          !bot?.fallback ||
-          (initialRender.current && !bot.fallback);
-
-        if (shouldUpdateGuardrails) {
-          updates.guardrails = template.guardrails;
-        }
-
-        if (shouldUpdateFallback) {
-          updates.fallback = template.fallback;
-        }
-
-        onChange(updates);
-
-        // After the first render, mark that we're no longer in initial state
-        if (initialRender.current) {
-          initialRender.current = false;
-        }
-      }
-
-      setInitialized(true);
-    }
-  }, [bot, onChange, templates.safety, initialized]);
-
-  // Separate effect to check for custom content after the initial content is set
-  useEffect(() => {
-    if (initialized && bot?.guardrails) {
-      const safetyLevel = bot.safetyLevel || "lenient";
-      const template = templates.safety[safetyLevel];
-
-      if (template && safetyLevel !== "custom") {
-        const isCustom = checkIfCustom(
-          safetyLevel,
-          template.guardrails,
-          template.fallback
-        );
-        setHasEditedManually(isCustom);
-      } else {
-        setHasEditedManually(true);
-      }
-    }
-  }, [
-    bot?.guardrails,
-    bot?.fallback,
-    bot?.safetyLevel,
-    initialized,
-    templates.safety,
-  ]);
-
-  // Check if the current content matches the template
-  const checkIfCustom = (
-    safetyKey,
-    expectedGuardrails = null,
-    expectedFallback = null
-  ) => {
+  // Check if content differs from template
+  const checkIfContentCustom = (safetyKey) => {
     if (safetyKey === "custom") return true;
 
     const template = templates.safety[safetyKey];
     if (!template) return true;
 
-    const templateGuardrails = expectedGuardrails || template.guardrails;
-    const templateFallback = expectedFallback || template.fallback;
-
-    // Normalize both messages for comparison (remove extra whitespace)
-    const normalizeMessage = (msg) => msg.trim().replace(/\s+/g, " ");
+    const normalizeMessage = (msg) => (msg || "").trim().replace(/\s+/g, " ");
 
     const guardrailsCustom =
       bot?.guardrails &&
-      normalizeMessage(bot.guardrails) !== normalizeMessage(templateGuardrails);
+      normalizeMessage(bot.guardrails) !==
+        normalizeMessage(template.guardrails);
 
     const fallbackCustom =
       bot?.fallback &&
-      normalizeMessage(bot.fallback) !== normalizeMessage(templateFallback);
+      normalizeMessage(bot.fallback) !== normalizeMessage(template.fallback);
 
-    // Only mark as custom if guardrails are edited (not just fallback)
-    return guardrailsCustom;
+    // Return true if either guardrails OR fallback has been customized
+    return guardrailsCustom || fallbackCustom;
   };
+
+  // Simplified initialization - only set defaults for new bots
+  useEffect(() => {
+    if (!templates.safety || initialized.current) return;
+
+    // Always start with "lenient" as default UI state
+    const defaultSafety = "lenient";
+
+    // Check if this bot has custom content
+    const hasCustomContent = checkIfContentCustom(
+      bot?.safetyLevel || defaultSafety
+    );
+
+    // Set appropriate selected state
+    if (hasCustomContent) {
+      setSelectedSafety("custom-saved");
+    } else {
+      setSelectedSafety(defaultSafety);
+    }
+
+    // Only populate template content for completely new bots (no existing data)
+    if (!bot?.id && (!bot?.guardrails || !bot?.fallback)) {
+      const template = templates.safety[defaultSafety];
+      if (template) {
+        const updates = {
+          safetyLevel: defaultSafety,
+          guardrails: template.guardrails,
+          fallback: template.fallback,
+        };
+        onChange(updates);
+      }
+    }
+
+    initialized.current = true;
+  }, [bot, onChange, templates.safety]);
 
   const handleChange = (field, value) => {
     onChange({ [field]: value });
@@ -164,55 +107,52 @@ export default function BotSafetySettings({ bot, onChange }) {
   };
 
   const handleSafetyChange = (safetyKey) => {
+    const template = templates.safety[safetyKey];
+    if (!template) return;
+
+    // Only update messages if we're switching to a template safety level
+    // and the current content matches the old template
+    const currentTemplate = templates.safety[selectedSafety];
+    const shouldUpdateContent =
+      safetyKey !== "custom" &&
+      currentTemplate &&
+      !checkIfContentCustom(selectedSafety);
+
+    const updates = {
+      safetyLevel: safetyKey,
+    };
+
+    if (shouldUpdateContent) {
+      updates.guardrails = template.guardrails;
+      updates.fallback = template.fallback;
+    }
+
+    onChange(updates);
     setSelectedSafety(safetyKey);
     setIsEditingGuardrails(false);
     setIsEditingFallback(false);
     setHasUnsavedGuardrailsChanges(false);
     setHasUnsavedFallbackChanges(false);
-
-    const template = templates.safety[safetyKey];
-
-    if (template && safetyKey !== "custom") {
-      onChange({
-        guardrails: template.guardrails,
-        fallback: template.fallback,
-        safetyLevel: safetyKey,
-      });
-      setHasEditedManually(false);
-    } else {
-      // When switching to custom, use the custom template content
-      const customTemplate = templates.safety.custom;
-      onChange({
-        guardrails: customTemplate.guardrails,
-        fallback: customTemplate.fallback,
-        safetyLevel: "custom",
-      });
-      setHasEditedManually(true);
-      setIsEditingGuardrails(true);
-    }
   };
 
   const handleGuardrailsEditToggle = () => {
     if (isEditingGuardrails) {
-      // Save action - mark as custom and exit edit mode
       setIsEditingGuardrails(false);
-      setHasEditedManually(true);
       setHasUnsavedGuardrailsChanges(false);
-      // Also update safetyLevel to custom when saving guardrails edits
       onChange({ safetyLevel: "custom" });
+      setSelectedSafety("custom-saved");
     } else {
-      // Enter edit mode
       setIsEditingGuardrails(true);
     }
   };
 
   const handleFallbackEditToggle = () => {
     if (isEditingFallback) {
-      // Save action - just exit edit mode (doesn't mark as custom)
       setIsEditingFallback(false);
       setHasUnsavedFallbackChanges(false);
+      onChange({ safetyLevel: "custom" });
+      setSelectedSafety("custom-saved");
     } else {
-      // Enter edit mode
       setIsEditingFallback(true);
     }
   };
@@ -223,13 +163,15 @@ export default function BotSafetySettings({ bot, onChange }) {
   const currentTemplate =
     templates.safety[selectedSafety] || templates.safety.lenient;
 
-  // Determine states for styling and behavior
-  const showGuardrailsEditButton =
-    !hasEditedManually && selectedSafety !== "custom";
-  const showFallbackEditButton = selectedSafety !== "custom";
-  const isCustomSafety = selectedSafety === "custom" || hasEditedManually;
-  const isGuardrailsReadOnly = !isEditingGuardrails && !isCustomSafety;
-  const isFallbackReadOnly = !isEditingFallback && !isCustomSafety;
+  // Simplified logic - consistent with personality settings
+  const isGuardrailsEditable = isEditingGuardrails;
+  const isFallbackEditable = isEditingFallback;
+
+  const shouldShowGuardrailsEditSaveButton =
+    !isEditingGuardrails ||
+    (isEditingGuardrails && hasUnsavedGuardrailsChanges);
+  const shouldShowFallbackEditSaveButton =
+    !isEditingFallback || (isEditingFallback && hasUnsavedFallbackChanges);
 
   const textareaClassName = (isReadOnly) =>
     `font-mono text-sm resize-vertical ${
@@ -238,12 +180,7 @@ export default function BotSafetySettings({ bot, onChange }) {
         : "text-foreground bg-background border-border"
     }`;
 
-  // Determine if we should show the edit/save buttons
-  const shouldShowGuardrailsEditSaveButton =
-    showGuardrailsEditButton ||
-    (isEditingGuardrails && hasUnsavedGuardrailsChanges);
-  const shouldShowFallbackEditSaveButton =
-    showFallbackEditButton || (isEditingFallback && hasUnsavedFallbackChanges);
+  const safetyEntries = Object.entries(templates.safety);
 
   return (
     <div className="space-y-6">
@@ -278,13 +215,16 @@ export default function BotSafetySettings({ bot, onChange }) {
 
           {/* Template Cards for quick selection */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.entries(templates.safety).map(([key, template]) => (
+            {safetyEntries.map(([key, template], index) => (
               <Card
                 key={key}
                 className={`cursor-pointer transition-all hover:border-primary/50 ${
-                  (hasEditedManually ? "custom" : selectedSafety) === key
+                  selectedSafety === key ||
+                  (selectedSafety === "custom-saved" && key === "custom")
                     ? "border-primary bg-primary/5"
                     : ""
+                } ${
+                  index === safetyEntries.length - 1 ? "custom-safety-card" : ""
                 }`}
                 onClick={() => handleSafetyChange(key)}
               >
@@ -354,15 +294,15 @@ export default function BotSafetySettings({ bot, onChange }) {
               onChange={(e) => handleGuardrailsChange(e.target.value)}
               placeholder="Rules and restrictions to keep your bot safe and on-brand..."
               rows={6}
-              className={textareaClassName(isGuardrailsReadOnly)}
-              readOnly={isGuardrailsReadOnly}
+              className={textareaClassName(!isGuardrailsEditable)}
+              readOnly={!isGuardrailsEditable}
             />
             <p className="text-sm text-muted-foreground">
               Rules and restrictions to keep your bot safe and on-brand
-              {hasEditedManually && (
+              {selectedSafety === "custom-saved" && (
                 <span className="text-amber-600 font-medium">
                   {" "}
-                  • Customized (will save as custom template)
+                  • Customized
                 </span>
               )}
               {hasUnsavedGuardrailsChanges && (
@@ -371,7 +311,7 @@ export default function BotSafetySettings({ bot, onChange }) {
                   • Unsaved changes
                 </span>
               )}
-              {isGuardrailsReadOnly && !hasEditedManually && (
+              {!isGuardrailsEditable && (
                 <span className="text-blue-600 font-medium">
                   {" "}
                   • Read-only (click Edit to customize)
@@ -431,18 +371,24 @@ export default function BotSafetySettings({ bot, onChange }) {
               onChange={(e) => handleFallbackChange(e.target.value)}
               placeholder="What to say when the bot doesn't know the answer..."
               rows={3}
-              className={textareaClassName(isFallbackReadOnly)}
-              readOnly={isFallbackReadOnly}
+              className={textareaClassName(!isFallbackEditable)}
+              readOnly={!isFallbackEditable}
             />
             <p className="text-sm text-muted-foreground">
               Response when the bot cannot answer a question
+              {selectedSafety === "custom-saved" && (
+                <span className="text-amber-600 font-medium">
+                  {" "}
+                  • Customized
+                </span>
+              )}
               {hasUnsavedFallbackChanges && (
                 <span className="text-orange-600 font-medium">
                   {" "}
                   • Unsaved changes
                 </span>
               )}
-              {isFallbackReadOnly && !hasEditedManually && (
+              {!isFallbackEditable && (
                 <span className="text-blue-600 font-medium">
                   {" "}
                   • Read-only (click Edit to customize)

@@ -1,5 +1,5 @@
 // src/components/BotEditDialog/BotEditDialog.jsx
-import { useEffect } from "react";
+import { useEffect, useCallback, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -32,65 +32,77 @@ export default function BotEditDialog({
   const isNew = !bot;
   const { user } = useUserStore();
 
-  // Get store state and actions - simplified (no template loading)
   const {
     formData,
     currentStep,
-    updateFormData,
-    nextStep: storeNextStep,
-    prevStep: storePrevStep,
+    updateFormData: storeUpdate,
+    nextStep: storeNext,
+    prevStep: storePrev,
     reset: resetStore,
     isStepValid,
   } = useBotWizardStore();
 
-  // Initialize store with existing bot data when editing
+  const updateFormData = useCallback(
+    (updates) => {
+      storeUpdate(updates);
+    },
+    [storeUpdate]
+  );
+
+  // Initialize form when dialog opens - FIXED: Preserve custom messages
   useEffect(() => {
-    if (open && bot) {
-      const updatedFormData = { ...bot };
+    if (!open) return;
 
-      if (!bot.personalityType) {
-        updatedFormData.personalityType = "professional";
-        updatedFormData.safetyLevel = "standard";
-      }
-
-      updateFormData(updatedFormData);
+    if (isNew) {
+      resetStore(); // Clean slate for new bot
+      return;
     }
-  }, [open, bot, updateFormData]);
 
-  const prepareFilesForUpload = (files) => {
-    return files.map((file) => ({
-      ...file,
-      uploadedBy: user?.id || "unknown-user",
-    }));
-  };
+    // Editing existing bot - preserve ALL fields including custom messages
+    const payload = { ...bot };
 
-  const handleSave = async () => {
-    if (isStepValid()) {
-      const saveData = {
-        ...formData,
-        files: prepareFilesForUpload(formData.files || []),
-      };
-      await onSave(saveData);
-      resetStore();
-    }
-  };
+    // Only set defaults if fields are empty
+    if (!payload.personalityType) payload.personalityType = "friendly";
+    if (!payload.safetyLevel) payload.safetyLevel = "standard";
 
-  const handleClose = () => {
-    if (!saveLoading && !fileUploadLoading) {
-      resetStore();
-      onOpenChange(false);
-    }
-  };
+    updateFormData(payload);
+  }, [open, bot, isNew, updateFormData, resetStore]);
 
-  const nextStep = () => {
+  const handleClose = useCallback(() => {
+    if (saveLoading || fileUploadLoading) return;
+    resetStore();
+    onOpenChange(false);
+  }, [saveLoading, fileUploadLoading, resetStore, onOpenChange]);
+
+  const nextStep = useCallback(() => {
     if (isStepValid() && currentStep < STEPS.length - 1) {
-      storeNextStep();
+      storeNext();
     }
-  };
+  }, [isStepValid, currentStep, storeNext]);
 
-  const prevStep = () => {
-    storePrevStep();
-  };
+  const prevStep = useCallback(() => {
+    storePrev();
+  }, [storePrev]);
+
+  const prepareFilesForUpload = useCallback(
+    (files) =>
+      files.map((file) => ({
+        ...file,
+        uploadedBy: user?.id || "unknown-user",
+      })),
+    [user?.id]
+  );
+
+  const handleSave = useCallback(async () => {
+    if (!isStepValid()) return;
+
+    const payload = {
+      ...formData,
+      files: prepareFilesForUpload(formData.files || []),
+    };
+
+    await onSave(payload);
+  }, [isStepValid, formData, prepareFilesForUpload, onSave]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -100,12 +112,12 @@ export default function BotEditDialog({
       >
         <DialogHeader className="px-1 sm:px-0">
           <DialogTitle>
-            {isNew ? "Create New Bot" : `Edit ${bot.botName}`}
+            {isNew ? "Create New Bot" : `Edit ${bot?.botName}`}
           </DialogTitle>
           <DialogDescription className="sr-only">
             {isNew
               ? "Create a new AI assistant by filling out the steps below"
-              : `Edit the settings and configuration for ${bot.botName}`}
+              : `Edit the settings and configuration for ${bot?.botName}`}
           </DialogDescription>
         </DialogHeader>
 
