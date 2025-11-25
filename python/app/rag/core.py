@@ -14,6 +14,10 @@ from app.rag.pipeline import build_prompt, build_chain
 from app.rag.llm import make_llm
 from app.rag.inspection_store import InspectionStore
 
+# ADD DEBUG IMPORTS
+from app.config import MONGODB_URI, MONGODB_DB_NAME, APP_ENV
+from pymongo import MongoClient
+
 logger = logging.getLogger(__name__)
 
 def is_s3_url(path: str) -> bool:
@@ -44,13 +48,28 @@ def ingest_files(
     chunk_size: int = 800,
     chunk_overlap: int = 120,
 ) -> int:
+    # ADD COMPREHENSIVE DEBUG LOGGING FOR DATABASE
+    print(f"🔍 INGEST PROCESS - Starting ingest for bot: {bot_id}")
+    print(f"🔍 INGEST PROCESS - APP_ENV: {APP_ENV}")
+    print(f"🔍 INGEST PROCESS - MONGODB_DB_NAME: {MONGODB_DB_NAME}")
+    
+    # Debug: list available databases
+    client = MongoClient(MONGODB_URI)
+    db_names = client.list_database_names()
+    rag_dbs = [db_name for db_name in db_names if 'rag_platform' in db_name]
+    print(f"🔍 INGEST PROCESS - Available RAG databases: {rag_dbs}")
+    print(f"🔍 INGEST PROCESS - Using database: {MONGODB_DB_NAME}")
+    client.close()
+    
     # DEBUG: Log what paths we received
     logger.info(f"🔍 DEBUG ingest_files called with paths: {paths}")
     logger.info(f"🔍 DEBUG bot_id: {bot_id}, user_id: {user_id}")
     
     # REMOVE the S3 filtering - let load_paths handle both local and S3
     # Initialize inspection store
+    print(f"🔍 INGEST PROCESS - Initializing InspectionStore...")
     inspection_store = InspectionStore()
+    print(f"🔍 INGEST PROCESS - InspectionStore using database: {inspection_store.db_name}")
     
     # 🎯 CRITICAL: Track original S3 URLs to S3 key mapping
     s3_url_to_key = {}
@@ -77,6 +96,7 @@ def ingest_files(
     )
         
     chunks = splitter.split_documents(docs)
+    print(f"🔍 INGEST PROCESS - Created {len(chunks)} chunks from {len(docs)} documents")
 
     # Scope metadata
     scope = f"user:{user_id}" if user_id else "global"
@@ -120,8 +140,10 @@ def ingest_files(
     logger.info(f"🔍 DEBUG Found chunks from sources: {list(chunks_by_source.keys())}")
     
     # Save inspection data for each document
+    print(f"🔍 INGEST PROCESS - Saving inspection data for {len(chunks_by_source)} documents")
     for source_path, document_chunks in chunks_by_source.items():
         logger.info(f"🔍 DEBUG Saving inspection data for: {source_path} with {len(document_chunks)} chunks")
+        print(f"🔍 INGEST PROCESS - Saving to inspection store: {source_path} ({len(document_chunks)} chunks)")
         
         chunks_data = []
         for i, chunk in enumerate(document_chunks):
@@ -146,9 +168,11 @@ def ingest_files(
         )
 
     # Upsert to vector store
+    print(f"🔍 INGEST PROCESS - Adding {len(chunks)} chunks to vector store")
     vs = get_vectorstore(bot_id)
     vs.add_documents(chunks)
     
+    print(f"✅ INGEST PROCESS - Completed successfully for bot: {bot_id}")
     return len(chunks)
 
 # KEEP _answer_with_llm_only but update return handling

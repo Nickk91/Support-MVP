@@ -1,4 +1,4 @@
-# python/app/routers/bots.py - NEW FILE
+# python/app/routers/bots.py 
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
 import logging
