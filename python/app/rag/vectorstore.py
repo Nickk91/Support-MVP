@@ -1,36 +1,86 @@
-# python/app/rag/vectorstore.py - ENHANCED DELETION WITH MULTIPLE STRATEGIES
+# python/app/rag/vectorstore.py - UPDATED FOR PINECONE COMPATIBILITY
 from __future__ import annotations
 
 import os
 import logging
 import shutil
-import time
-import gc
-import subprocess
-import platform
-from pathlib import Path
 from typing import Callable, Optional, List
-
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma, FAISS
 from langchain_core.documents import Document
+from langchain_core.vectorstores import VectorStore
+
+# Conditional imports for Pinecone
+try:
+    from pinecone import Pinecone, ServerlessSpec
+    from langchain_pinecone import PineconeVectorStore
+    PINECONE_AVAILABLE = True
+except ImportError:
+    PINECONE_AVAILABLE = False
+    PineconeVectorStore = None
 
 # Add logger definition
 logger = logging.getLogger(__name__)
 
-# ---------- Paths ----------
-REPO_ROOT = Path(__file__).resolve().parents[2]
-VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
-VECTORDIR.mkdir(parents=True, exist_ok=True)
+# ---------- Pinecone Configuration ----------
+def get_pinecone_client():
+    """Initialize Pinecone client"""
+    if not PINECONE_AVAILABLE:
+        raise ImportError("Pinecone packages not installed. Run: pip install pinecone-client langchain-pinecone")
+    
+    api_key = os.getenv("PINECONE_API_KEY")
+    if not api_key:
+        raise ValueError("PINECONE_API_KEY environment variable is required")
+    
+    return Pinecone(api_key=api_key)
 
-# ---------- Embeddings ----------
-def _embeddings():
-    return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': False},
+def get_pinecone_index_name(bot_id: str) -> str:
+    """Generate Pinecone index name for a bot"""
+    # Pinecone index names must be lowercase and alphanumeric, 45 chars max
+    index_name = f"bot-{bot_id}".lower().replace('_', '-')
+    # Remove any invalid characters and truncate
+    index_name = ''.join(c for c in index_name if c.isalnum() or c == '-')[:45]
+    return index_name
+
+def ensure_pinecone_index(bot_id: str) -> str:
+    """Ensure Pinecone index exists, create if not"""
+    pc = get_pinecone_client()
+    index_name = get_pinecone_index_name(bot_id)
+    
+    # Check if index exists
+    existing_indexes = [index.name for index in pc.list_indexes()]
+    
+    if index_name not in existing_indexes:
+        # Create new index
+        pc.create_index(
+            name=index_name,
+            dimension=384,  # all-MiniLM-L6-v2 dimension
+            metric="cosine",
+            spec=ServerlessSpec(
+                cloud="aws",
+                region="us-east-1"
+            )
+        )
+        logger.info(f"✅ Created Pinecone index: {index_name}")
+        # Wait for index to be ready
+        import time
+        time.sleep(10)
+    
+    return index_name
+
+def get_pinecone_store(bot_id: str) -> PineconeVectorStore:
+    """Get Pinecone vector store for a bot"""
+    if not PINECONE_AVAILABLE:
+        raise ImportError("Pinecone not available")
+    
+    index_name = ensure_pinecone_index(bot_id)
+    
+    return PineconeVectorStore(
+        index_name=index_name,
+        embedding=get_embeddings(),
+        pinecone_api_key=os.getenv("PINECONE_API_KEY")
     )
 
+# ---------- Embeddings (unchanged) ----------
 def get_embeddings():
     """Get the embeddings model"""
     return HuggingFaceEmbeddings(
@@ -39,48 +89,39 @@ def get_embeddings():
         encode_kwargs={'normalize_embeddings': False}
     )
 
-# ---------- Chroma backend ----------
-def get_chroma_store(bot_id: str) -> Chroma:
+# ---------- Local backends (keep for compatibility) ----------
+def get_chroma_store(bot_id: str):
+    """Fallback to Chroma if Pinecone not available"""
+    from langchain_community.vectorstores import Chroma
+    from pathlib import Path
+    
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+    VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
+    VECTORDIR.mkdir(parents=True, exist_ok=True)
+    
     persist_dir = (VECTORDIR / bot_id / "chroma")
     persist_dir.mkdir(parents=True, exist_ok=True)
     return Chroma(
         collection_name=f"bot_{bot_id}",
-        embedding_function=_embeddings(),
+        embedding_function=get_embeddings(),
         persist_directory=persist_dir.as_posix(),
     )
 
-# ---------- FAISS helpers ----------
-def _faiss_dir(bot_id: str) -> Path:
-    d = VECTORDIR / bot_id / "faiss"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-def _faiss_try_load(bot_id: str) -> Optional[FAISS]:
-    d = _faiss_dir(bot_id)
-    if (d / "index.faiss").exists() and (d / "index.pkl").exists():
-        return FAISS.load_local(
-            d.as_posix(),
-            _embeddings(),
-            allow_dangerous_deserialization=True,
-        )
-    return None
-
-class _EmptyRetriever:
-    def invoke(self, _q: str) -> List[Document]:
-        return []
-    def get_relevant_documents(self, _q: str) -> List[Document]:
-        return []
-
 class LazyFaissStore:
+    """Fallback FAISS store"""
     def __init__(self, bot_id: str):
         self.bot_id = bot_id
-        self._store: Optional[FAISS] = _faiss_try_load(bot_id)
+        self._store = None
 
     def add_documents(self, docs: List[Document]):
+        from langchain_community.vectorstores import FAISS
+        from pathlib import Path
+        
         if not docs:
             return
+            
         if self._store is None:
-            self._store = FAISS.from_documents(docs, _embeddings())
+            self._store = FAISS.from_documents(docs, get_embeddings())
         else:
             self._store.add_documents(docs)
         self.persist()
@@ -88,27 +129,59 @@ class LazyFaissStore:
     def persist(self):
         if self._store is None:
             return
-        out_dir = _faiss_dir(self.bot_id)
+        from pathlib import Path
+        
+        REPO_ROOT = Path(__file__).resolve().parents[2]
+        VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
+        out_dir = VECTORDIR / self.bot_id / "faiss"
+        out_dir.mkdir(parents=True, exist_ok=True)
         self._store.save_local(out_dir.as_posix())
 
     def as_retriever(self, **kwargs):
         if self._store is None:
-            self._store = _faiss_try_load(self.bot_id)
+            # Try to load existing
+            from langchain_community.vectorstores import FAISS
+            from pathlib import Path
+            
+            REPO_ROOT = Path(__file__).resolve().parents[2]
+            VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
+            out_dir = VECTORDIR / self.bot_id / "faiss"
+            
+            if (out_dir / "index.faiss").exists():
+                self._store = FAISS.load_local(
+                    out_dir.as_posix(),
+                    get_embeddings(),
+                    allow_dangerous_deserialization=True,
+                )
+        
         if self._store is None:
-            return _EmptyRetriever()
+            from langchain_core.documents import Document
+            class EmptyRetriever:
+                def invoke(self, _q: str) -> List[Document]:
+                    return []
+                def get_relevant_documents(self, _q: str) -> List[Document]:
+                    return []
+            return EmptyRetriever()
+            
         return self._store.as_retriever(**kwargs)
 
 def get_faiss_store(bot_id: str) -> LazyFaissStore:
     return LazyFaissStore(bot_id)
 
-# ---------- Backend registry ----------
+# ---------- Updated Backend Registry ----------
 _BACKENDS: dict[str, Callable[[str], object]] = {
     "chroma": get_chroma_store,
     "faiss": get_faiss_store,
 }
 
+# Add Pinecone to backends if available
+if PINECONE_AVAILABLE:
+    _BACKENDS["pinecone"] = get_pinecone_store
+else:
+    logger.warning("Pinecone not available. Install with: pip install pinecone-client langchain-pinecone")
+
 def _resolve_backend_name(override: Optional[str] = None) -> str:
-    name = (override or os.getenv("RAG_VECTOR_BACKEND") or "chroma").strip().lower()
+    name = (override or os.getenv("RAG_VECTOR_BACKEND") or "pinecone" if PINECONE_AVAILABLE else "chroma").strip().lower()
     if name not in _BACKENDS:
         raise ValueError(f"Unknown vector backend '{name}'. Supported: {', '.join(_BACKENDS)}")
     return name
@@ -119,239 +192,58 @@ def get_vectorstore(bot_id: str, backend: str = None) -> object:
     store_factory = _BACKENDS[backend_name]
     return store_factory(bot_id)
 
-# ---------- Enhanced Vector Store Deletion ----------
-# python/app/rag/vectorstore.py - UPDATE delete_vectorstore function
+# ---------- Simplified Deletion for Pinecone ----------
 def delete_vectorstore(bot_id: str) -> bool:
     """
-    Delete vector store for a bot - always returns True to avoid blocking deletions
+    Delete vector store for a bot
     """
     try:
         backend_name = _resolve_backend_name()
         
-        if backend_name == "chroma":
-            chroma_dir = VECTORDIR / bot_id / "chroma"
-            if not chroma_dir.exists():
-                logger.info(f"ℹ️ No ChromaDB directory found for bot {bot_id}")
-                return True
+        if backend_name == "pinecone" and PINECONE_AVAILABLE:
+            pc = get_pinecone_client()
+            index_name = get_pinecone_index_name(bot_id)
             
-            # Try graceful cleanup first
-            if _try_graceful_chroma_cleanup(bot_id, chroma_dir):
-                return True
+            # Check if index exists
+            existing_indexes = [index.name for index in pc.list_indexes()]
             
-            # Fall back to forceful deletion
-            return _force_delete_chroma_directory(bot_id, chroma_dir)
+            if index_name in existing_indexes:
+                # Delete the entire index
+                pc.delete_index(index_name)
+                logger.info(f"✅ Deleted Pinecone index: {index_name}")
+            else:
+                logger.info(f"ℹ️ No Pinecone index found for bot {bot_id}")
+            
+            return True
+            
+        else:
+            # Fallback to local deletion for Chroma/FAISS
+            from pathlib import Path
+            REPO_ROOT = Path(__file__).resolve().parents[2]
+            VECTORDIR = (REPO_ROOT / "data" / "vectordb").resolve()
+            
+            if backend_name == "chroma":
+                chroma_dir = VECTORDIR / bot_id / "chroma"
+                if chroma_dir.exists():
+                    shutil.rmtree(chroma_dir)
+                    logger.info(f"✅ Deleted ChromaDB directory: {chroma_dir}")
+                return True
                 
-        elif backend_name == "faiss":
-            faiss_dir = VECTORDIR / bot_id / "faiss"
-            if faiss_dir.exists():
-                try:
+            elif backend_name == "faiss":
+                faiss_dir = VECTORDIR / bot_id / "faiss"
+                if faiss_dir.exists():
                     shutil.rmtree(faiss_dir)
                     logger.info(f"✅ Deleted FAISS directory: {faiss_dir}")
-                    return True
-                except Exception as e:
-                    logger.warning(f"⚠️ FAISS directory deletion failed: {e}")
-                    return True  # Still return success
-            else:
-                logger.info(f"ℹ️ No FAISS directory found for bot {bot_id}")
                 return True
-        else:
-            logger.warning(f"⚠️ Unknown backend {backend_name}, cannot cleanup vector store")
-            return True  # 🎯 RETURN TRUE TO AVOID BLOCKING
+            else:
+                logger.warning(f"⚠️ Unknown backend {backend_name}")
+                return True
             
     except Exception as e:
         logger.error(f"❌ Failed to delete vector store for bot {bot_id}: {e}")
-        # 🎯 ALWAYS RETURN TRUE TO AVOID BLOCKING NODE.JS DELETION
         return True
-def _try_graceful_chroma_cleanup(bot_id: str, chroma_dir: Path) -> bool:
-    """Try to gracefully close ChromaDB connections and delete"""
-    try:
-        # Get the store instance and try to close it properly
-        store = get_chroma_store(bot_id)
-        
-        # Try various methods to release file handles
-        if hasattr(store, '_client'):
-            try:
-                store._client.clear_system_cache()
-            except:
-                pass
-        
-        # Try to delete the collection directly if possible
-        if hasattr(store, '_collection') and store._collection:
-            try:
-                store._collection.delete()
-                logger.info(f"✅ Deleted ChromaDB collection for bot {bot_id}")
-                return True
-            except Exception as e:
-                logger.debug(f"Collection deletion failed: {e}")
-        
-        # If store has any close/clear methods, call them
-        for attr_name in ['close', 'clear', 'delete_collection']:
-            if hasattr(store, attr_name):
-                try:
-                    getattr(store, attr_name)()
-                    logger.debug(f"✅ Called {attr_name} on Chroma store")
-                except Exception as e:
-                    logger.debug(f"Could not call {attr_name}: {e}")
-                    
-    except Exception as e:
-        logger.debug(f"Could not cleanly close Chroma store: {e}")
-    
-    return False
 
-def _force_delete_chroma_directory(bot_id: str, chroma_dir: Path) -> bool:
-    """Use multiple aggressive strategies to delete Chroma directory"""
-    
-    # Force garbage collection to release any remaining references
-    gc.collect()
-    time.sleep(1)
-    
-    # Strategy 1: Standard shutil deletion with retries
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            shutil.rmtree(chroma_dir)
-            logger.info(f"✅ Deleted ChromaDB directory: {chroma_dir}")
-            return True
-        except (PermissionError, OSError) as e:
-            if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 2
-                logger.warning(f"⚠️ Standard deletion failed, retrying in {wait_time}s... (attempt {attempt + 1})")
-                time.sleep(wait_time)
-                gc.collect()
-    
-    # Strategy 2: Windows-specific forceful deletion
-    if platform.system() == "Windows":
-        if _windows_force_delete(chroma_dir):
-            return True
-    
-    # Strategy 3: Individual file deletion (more granular)
-    if _delete_files_individually(chroma_dir):
-        return True
-    
-    # Strategy 4: Mark for deletion and try on next startup
-    logger.error(f"❌ All deletion strategies failed for bot {bot_id}")
-    _mark_for_deletion(bot_id)
-    return False
-
-def _windows_force_delete(directory: Path) -> bool:
-    """Windows-specific forceful directory deletion"""
-    try:
-        # Use rmdir with /s /q for silent forced deletion
-        cmd = f'rmdir /s /q "{directory}"'
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0 or not directory.exists():
-            logger.info(f"✅ Windows force-deleted directory: {directory}")
-            return True
-        else:
-            logger.warning(f"⚠️ Windows deletion command failed: {result.stderr}")
-            return False
-            
-    except subprocess.TimeoutExpired:
-        logger.error(f"❌ Windows deletion timed out for {directory}")
-        return False
-    except Exception as e:
-        logger.error(f"❌ Windows deletion failed: {e}")
-        return False
-
-def _delete_files_individually(directory: Path) -> bool:
-    """Delete files individually, which can sometimes work when rmtree fails"""
-    try:
-        if not directory.exists():
-            return True
-            
-        # Delete all files first
-        for file_path in directory.rglob('*'):
-            if file_path.is_file():
-                try:
-                    file_path.unlink()
-                except (PermissionError, OSError) as e:
-                    logger.debug(f"Could not delete file {file_path}: {e}")
-                    # Try with different permissions
-                    try:
-                        file_path.chmod(0o666)  # Make writable
-                        file_path.unlink()
-                    except:
-                        pass
-        
-        # Then try to delete empty directories
-        for root, dirs, files in os.walk(directory, topdown=False):
-            for dir_name in dirs:
-                dir_path = Path(root) / dir_name
-                try:
-                    dir_path.rmdir()
-                except:
-                    pass
-        
-        # Final attempt to remove the main directory
-        try:
-            directory.rmdir()
-            logger.info(f"✅ Individual file deletion succeeded: {directory}")
-            return True
-        except:
-            # If we still can't delete the directory, but all files are gone, that's acceptable
-            if not any(directory.rglob('*')):
-                logger.info(f"✅ All files removed from directory (empty directory remains): {directory}")
-                return True
-            return False
-            
-    except Exception as e:
-        logger.debug(f"Individual file deletion failed: {e}")
-        return False
-
-def _mark_for_deletion(bot_id: str):
-    """Mark a bot's vector store for deletion on next startup"""
-    try:
-        deletion_file = VECTORDIR / "pending_deletions.txt"
-        with open(deletion_file, "a") as f:
-            f.write(f"{bot_id}\n")
-        logger.info(f"📝 Marked bot {bot_id} for deletion on next startup")
-    except Exception as e:
-        logger.error(f"❌ Failed to mark bot {bot_id} for deletion: {e}")
-
-def cleanup_pending_deletions():
-    """Clean up any vector stores marked for deletion from previous runs"""
-    try:
-        deletion_file = VECTORDIR / "pending_deletions.txt"
-        if not deletion_file.exists():
-            return
-            
-        logger.info("🧹 Cleaning up pending vector store deletions...")
-        with open(deletion_file, "r") as f:
-            bot_ids = [line.strip() for line in f.readlines() if line.strip()]
-        
-        success_count = 0
-        remaining_bots = []
-        
-        for bot_id in bot_ids:
-            try:
-                chroma_dir = VECTORDIR / bot_id / "chroma"
-                if chroma_dir.exists():
-                    # Use the same aggressive deletion for pending cleanups
-                    if _force_delete_chroma_directory(bot_id, chroma_dir):
-                        success_count += 1
-                    else:
-                        remaining_bots.append(bot_id)
-                else:
-                    success_count += 1  # Directory already gone, count as success
-            except Exception as e:
-                logger.warning(f"⚠️ Could not clean up pending deletion for {bot_id}: {e}")
-                remaining_bots.append(bot_id)
-        
-        # Update or remove the deletion file
-        if remaining_bots:
-            with open(deletion_file, "w") as f:
-                for bot_id in remaining_bots:
-                    f.write(f"{bot_id}\n")
-            logger.info(f"⚠️ Some deletions pending for next startup ({success_count}/{len(bot_ids)} completed)")
-        else:
-            deletion_file.unlink()
-            logger.info(f"✅ Completed all pending deletions ({success_count} bots)")
-            
-    except Exception as e:
-        logger.error(f"❌ Failed to cleanup pending deletions: {e}")
-
-
+# ---------- File-specific deletion ----------
 def delete_files_from_vectorstore(vectorstore, file_paths: List[str]) -> int:
     """
     Delete specific files from vector store by their source metadata
@@ -359,80 +251,70 @@ def delete_files_from_vectorstore(vectorstore, file_paths: List[str]) -> int:
     try:
         deleted_count = 0
         
-        # Get all documents from the vector store
-        all_docs = vectorstore.get()
-        
-        if not all_docs or 'metadatas' not in all_docs:
-            return 0
-        
-        # Find document IDs that match the file paths
-        ids_to_delete = []
-        for i, metadata in enumerate(all_docs['metadatas']):
-            if metadata and 'source' in metadata:
-                source_path = metadata['source']
-                
-                # 🎯 CRITICAL FIX: Multiple matching strategies
-                for file_path in file_paths:
-                    # Extract just the filename for comparison
-                    source_filename = source_path.split('/')[-1] if '/' in source_path else source_path
-                    target_filename = file_path.split('/')[-1] if '/' in file_path else file_path
+        # For Pinecone
+        if PINECONE_AVAILABLE and isinstance(vectorstore, PineconeVectorStore):
+            # Pinecone deletion by metadata filter
+            for file_path in file_paths:
+                try:
+                    # Get all documents with matching source
+                    results = vectorstore.similarity_search(
+                        query=" ",  # Empty query
+                        filter={"source": file_path},
+                        k=1000  # Large number to get all matches
+                    )
                     
-                    # Try different matching strategies
-                    if (source_path == file_path or  # Exact match
-                        source_filename == target_filename or  # Filename match
-                        source_path.endswith(file_path) or  # Partial path match
-                        file_path in source_path):  # Substring match
+                    if results:
+                        # Extract IDs and delete
+                        ids_to_delete = []
+                        for doc in results:
+                            if hasattr(doc, 'metadata') and 'id' in doc.metadata:
+                                ids_to_delete.append(doc.metadata['id'])
                         
-                        ids_to_delete.append(all_docs['ids'][i])
-                        deleted_count += 1
-                        print(f"✅ MATCH FOUND: Vector source '{source_path}' matches cleanup file '{file_path}'")
-                        break  # Move to next document once matched
-        
-        # Delete the matching documents
-        if ids_to_delete:
-            vectorstore.delete(ids=ids_to_delete)
-            print(f"✅ Deleted {len(ids_to_delete)} documents from vector store for files: {file_paths}")
+                        if ids_to_delete:
+                            vectorstore.delete(ids=ids_to_delete)
+                            deleted_count += len(ids_to_delete)
+                            logger.info(f"✅ Deleted {len(ids_to_delete)} documents for file: {file_path}")
+                            
+                except Exception as e:
+                    logger.warning(f"⚠️ Error deleting file {file_path}: {e}")
+                    continue
+                    
         else:
-            print(f"⚠️ No matching documents found in vector store for files: {file_paths}")
-            print(f"🔍 Available sources in vector store: {[m.get('source', 'unknown') for m in all_docs['metadatas'] if m]}")
+            # Local vector store deletion (Chroma/FAISS)
+            all_docs = vectorstore.get()
+            
+            if not all_docs or 'metadatas' not in all_docs:
+                return 0
+            
+            ids_to_delete = []
+            for i, metadata in enumerate(all_docs['metadatas']):
+                if metadata and 'source' in metadata:
+                    source_path = metadata['source']
+                    
+                    for file_path in file_paths:
+                        source_filename = source_path.split('/')[-1] if '/' in source_path else source_path
+                        target_filename = file_path.split('/')[-1] if '/' in file_path else file_path
+                        
+                        if (source_path == file_path or
+                            source_filename == target_filename or
+                            source_path.endswith(file_path) or
+                            file_path in source_path):
+                            
+                            ids_to_delete.append(all_docs['ids'][i])
+                            deleted_count += 1
+                            break
+            
+            if ids_to_delete:
+                vectorstore.delete(ids=ids_to_delete)
+                logger.info(f"✅ Deleted {len(ids_to_delete)} documents from vector store")
         
         return deleted_count
         
     except Exception as e:
-        print(f"❌ Error deleting files from vector store: {e}")
+        logger.error(f"❌ Error deleting files from vector store: {e}")
         return 0
-def debug_vectorstore_contents(vectorstore, bot_id: str):
-    """
-    Debug function to see what's actually stored in the vector store
-    """
-    try:
-        all_docs = vectorstore.get()
-        
-        if not all_docs or 'metadatas' not in all_docs:
-            print(f"🔍 Vector store for bot {bot_id} is empty or has no metadata")
-            return
-        
-        print(f"🔍 VECTOR STORE CONTENTS FOR BOT {bot_id}:")
-        print(f"Total documents: {len(all_docs.get('ids', []))}")
-        
-        for i, (metadata, doc_id) in enumerate(zip(all_docs['metadatas'], all_docs['ids'])):
-            if metadata:
-                source = metadata.get('source', 'NO_SOURCE')
-                print(f"  Document {i}: ID={doc_id}, Source='{source}'")
-            else:
-                print(f"  Document {i}: ID={doc_id}, Metadata=None")
-                
-    except Exception as e:
-        print(f"❌ Error debugging vector store: {e}")
-    
+
+# Remove cleanup functions that are not needed for Pinecone
 def cleanup_pending_deletions():
-    """
-    Clean up any pending deletions in vector stores
-    This can be called on startup
-    """
-    try:
-        # This would depend on your specific vector store implementation
-        # For ChromaDB, you might check for orphaned collections, etc.
-        print("✅ Vector store cleanup check completed")
-    except Exception as e:
-        print(f"⚠️ Vector store cleanup check failed: {e}")
+    """No-op for Pinecone, kept for API compatibility"""
+    logger.info("✅ Pinecone vector store - no pending deletions to cleanup")

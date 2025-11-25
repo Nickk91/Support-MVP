@@ -1,9 +1,11 @@
-# app/rag/core.py
-
+# app/rag/core.py - FIXED IMPORTS
 from typing import List, Optional, Dict, Any
 import logging
 import os
-from langchain.schema import Document, HumanMessage, SystemMessage
+
+# FIXED: Updated imports for newer LangChain versions
+from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.rag.vectorstore import get_vectorstore
 from app.rag.loaders import load_paths
@@ -149,6 +151,41 @@ def ingest_files(
     
     return len(chunks)
 
+# KEEP _answer_with_llm_only but update return handling
+def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
+    """Answer using LLM only without RAG context"""
+    # Use a DIFFERENT system message for fallback mode
+    fallback_system_message = "You are a helpful assistant. Answer the user's question based on your general knowledge."
+    
+    messages = [
+        SystemMessage(content=fallback_system_message),
+        HumanMessage(content=question)
+    ]
+    
+    try:
+        # Use sync invoke instead of async ainvoke
+        response = llm.invoke(messages)
+        return response.content
+    except Exception as e:
+        logger.error(f"Error in _answer_with_llm_only: {e}")
+        return f"Error: {e}"
+
+# KEEP _is_context_insufficient function as is
+def _is_context_insufficient(documents: List[Document], question: str) -> bool:
+    """Determine if retrieved context is insufficient for the question"""
+    if not documents:
+        logger.info("🔍 CONTEXT CHECK - No documents found")
+        return True
+    
+    logger.info(f"🔍 CONTEXT CHECK - Found {len(documents)} documents, using them")
+    
+    # For debugging
+    for i, doc in enumerate(documents):
+        logger.info(f"🔍 CONTEXT CHECK - Doc {i} preview: {doc.page_content[:100]}...")
+    
+    # Always try to use the documents we found
+    # Let the LLM decide if they're relevant
+    return False
 
 # python/app/rag/core.py - UPDATE answer_query function
 async def answer_query(
@@ -273,39 +310,3 @@ async def answer_query(
                 "fallback_used": True
             }
         raise
-
-# KEEP _answer_with_llm_only but update return handling
-def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
-    """Answer using LLM only without RAG context"""
-    # Use a DIFFERENT system message for fallback mode
-    fallback_system_message = "You are a helpful assistant. Answer the user's question based on your general knowledge."
-    
-    messages = [
-        SystemMessage(content=fallback_system_message),
-        HumanMessage(content=question)
-    ]
-    
-    try:
-        # Use sync invoke instead of async ainvoke
-        response = llm.invoke(messages)
-        return response.content
-    except Exception as e:
-        logger.error(f"Error in _answer_with_llm_only: {e}")
-        return f"Error: {e}"
-
-# KEEP _is_context_insufficient function as is
-def _is_context_insufficient(documents: List[Document], question: str) -> bool:
-    """Determine if retrieved context is insufficient for the question"""
-    if not documents:
-        logger.info("🔍 CONTEXT CHECK - No documents found")
-        return True
-    
-    logger.info(f"🔍 CONTEXT CHECK - Found {len(documents)} documents, using them")
-    
-    # For debugging
-    for i, doc in enumerate(documents):
-        logger.info(f"🔍 CONTEXT CHECK - Doc {i} preview: {doc.page_content[:100]}...")
-    
-    # Always try to use the documents we found
-    # Let the LLM decide if they're relevant
-    return False
