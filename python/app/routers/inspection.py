@@ -95,3 +95,22 @@ async def test_document_query(bot_id: str, document_path: str, request: TestQuer
     except Exception as e:
         log.exception("Test query failed for bot_id=%s, path=%s", bot_id, document_path)
         raise HTTPException(status_code=400, detail=str(e))
+    
+
+@router.get("/debug/config")
+async def debug_config():
+    """Debug endpoint to check configuration"""
+    from app.config import MONGODB_URI, MONGODB_DB_NAME, APP_ENV
+    
+    # Test MongoDB connection
+    from pymongo import MongoClient
+    client = MongoClient(MONGODB_URI)
+    databases = client.list_database_names()
+    
+    return {
+        "APP_ENV": APP_ENV,
+        "MONGODB_URI": MONGODB_URI,
+        "MONGODB_DB_NAME": MONGODB_DB_NAME,
+        "available_databases": [db for db in databases if db.startswith("rag_platform")],
+        "current_database_exists": MONGODB_DB_NAME in databases
+    }

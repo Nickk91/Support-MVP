@@ -1,39 +1,51 @@
+# python\app\rag\inspection_store.py
+
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pymongo import MongoClient
 import os
-from dotenv import load_dotenv
+
+# Remove the duplicate load_dotenv() call and import from config
 from app.config import MONGODB_URI, MONGODB_DB_NAME, APP_ENV
 
-# Load environment variables from .env file
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
 class InspectionStore:
-    def __init__(self):
+    def __init__(self, db_name: Optional[str] = None):
+        # Use provided db_name or fall back to config
+        self.db_name = db_name or MONGODB_DB_NAME
+        print(f"🔍 INSPECTION STORE - Initializing")
+        print(f"🔍 INSPECTION STORE - APP_ENV: {APP_ENV}")
+        print(f"🔍 INSPECTION STORE - MONGODB_DB_NAME: {MONGODB_DB_NAME}")
+        print(f"🔍 INSPECTION STORE - Using database: {self.db_name}")
         self._init_mongodb()
     
     def _init_mongodb(self):
         """Initialize MongoDB collections"""
         try:
-            # Use the environment-dependent MongoDB configuration
             mongo_uri = MONGODB_URI
             if not mongo_uri:
-                print("⚠️ MONGODB_URI not found in environment variables")
+                print("⚠️ INSPECTION STORE - MONGODB_URI not found in environment variables")
                 self.mongo_client = None
                 return
                 
             self.mongo_client = MongoClient(mongo_uri)
-            self.mongo_db = self.mongo_client[MONGODB_DB_NAME]
+            self.mongo_db = self.mongo_client[self.db_name]
+            
+            # Test the connection
+            db_names = self.mongo_client.list_database_names()
+            rag_dbs = [db for db in db_names if 'rag_platform' in db]
+            print(f"🔍 INSPECTION STORE - Available RAG databases: {rag_dbs}")
+            print(f"🔍 INSPECTION STORE - Using database: {self.db_name}")
+            print(f"🔍 INSPECTION STORE - Database exists: {self.db_name in db_names}")
             
             # Create collections if they don't exist
             self.mongo_db.documents.create_index([("bot_id", 1), ("document_path", 1)])
             self.mongo_db.chunks.create_index([("bot_id", 1), ("document_path", 1)])
             self.mongo_db.chunks.create_index([("chunk_index", 1)])
             
-            print(f"✅ MongoDB cloud inspection store initialized for database: {MONGODB_DB_NAME}")
+            print(f"✅ INSPECTION STORE - MongoDB initialized for database: {self.db_name}")
         except Exception as e:
-            print(f"⚠️ MongoDB cloud initialization failed: {e}")
+            print(f"⚠️ INSPECTION STORE - MongoDB initialization failed: {e}")
             self.mongo_client = None
     
     def save_inspection_data(
@@ -45,21 +57,27 @@ class InspectionStore:
         tenant_id: Optional[str] = None
     ):
         """Save inspection data to MongoDB only (no SQLite)"""
+        print(f"🔍 INSPECTION STORE - Saving inspection data for bot: {bot_id}")
+        print(f"🔍 INSPECTION STORE - Document: {document_path}")
+        print(f"🔍 INSPECTION STORE - Chunks to save: {len(chunks_data)}")
+        print(f"🔍 INSPECTION STORE - Using database: {self.db_name}")
+        
         if not self.mongo_client:
-            print("❌ MongoDB client not available, skipping save")
+            print("❌ INSPECTION STORE - MongoDB client not available, skipping save")
             return
         
         try:
             self._save_to_mongodb(bot_id, document_path, chunks_data, user_id, tenant_id)
-            print(f"✅ Saved {len(chunks_data)} chunks to MongoDB for {document_path}")
+            print(f"✅ INSPECTION STORE - Saved {len(chunks_data)} chunks to MongoDB for {document_path}")
         except Exception as e:
-            print(f"❌ Failed to save to MongoDB: {e}")
+            print(f"❌ INSPECTION STORE - Failed to save to MongoDB: {e}")
     
     def _save_to_mongodb(self, bot_id: str, document_path: str, chunks_data: List[Dict], user_id: str = None, tenant_id: str = None):
         """Save inspection data to MongoDB"""
+        print(f"🔍 INSPECTION STORE - Starting MongoDB save for bot: {bot_id}")
         
         # Save document metadata
-        self.mongo_db.documents.update_one(
+        result = self.mongo_db.documents.update_one(
             {"bot_id": bot_id, "document_path": document_path},
             {
                 "$set": {
@@ -75,6 +93,8 @@ class InspectionStore:
             },
             upsert=True
         )
+        
+        print(f"🔍 INSPECTION STORE - Documents collection updated: {result.upserted_id or 'existing doc updated'}")
         
         # Prepare and save chunks
         mongo_chunks = []
@@ -94,39 +114,55 @@ class InspectionStore:
             mongo_chunks.append(mongo_chunk)
         
         # Delete existing chunks and insert new ones
-        self.mongo_db.chunks.delete_many({
+        delete_result = self.mongo_db.chunks.delete_many({
             "bot_id": bot_id,
             "document_path": document_path
         })
         
+        print(f"🔍 INSPECTION STORE - Deleted {delete_result.deleted_count} existing chunks")
+        
         if mongo_chunks:
-            self.mongo_db.chunks.insert_many(mongo_chunks)
+            insert_result = self.mongo_db.chunks.insert_many(mongo_chunks)
+            print(f"✅ INSPECTION STORE - Inserted {len(insert_result.inserted_ids)} new chunks")
+        else:
+            print("⚠️ INSPECTION STORE - No chunks to insert")
     
     def get_inspection_data(self, bot_id: str, document_path: str) -> Optional[Dict[str, Any]]:
         """Get inspection data from MongoDB"""
+        print(f"🔍 INSPECTION STORE - Getting data for bot: {bot_id}, document: {document_path}")
+        print(f"🔍 INSPECTION STORE - Using database: {self.db_name}")
+        
         if not self.mongo_client:
+            print("❌ INSPECTION STORE - MongoDB client not available")
             return None
             
         return self._get_from_mongodb(bot_id, document_path)
     
     def _get_from_mongodb(self, bot_id: str, document_path: str) -> Optional[Dict[str, Any]]:
         """Get inspection data from MongoDB"""
+        print(f"🔍 INSPECTION STORE - Querying MongoDB for bot: {bot_id}, document: {document_path}")
+        
         document = self.mongo_db.documents.find_one({
             "bot_id": bot_id, 
             "document_path": document_path
         })
         
         if not document:
+            print(f"❌ INSPECTION STORE - Document not found for bot: {bot_id}, path: {document_path}")
             return None
             
+        print(f"✅ INSPECTION STORE - Found document metadata")
+        
         chunks = list(self.mongo_db.chunks.find({
             "bot_id": bot_id,
             "document_path": document_path
         }).sort("chunk_index", 1))
         
         if not chunks:
+            print(f"❌ INSPECTION STORE - No chunks found for bot: {bot_id}, path: {document_path}")
             return None
         
+        print(f"✅ INSPECTION STORE - Found {len(chunks)} chunks for bot: {bot_id}")
         return {
             "bot_id": bot_id,
             "document_path": document_path,
@@ -138,16 +174,24 @@ class InspectionStore:
     
     def list_documents(self, bot_id: str) -> List[Dict[str, Any]]:
         """List documents from MongoDB"""
+        print(f"🔍 INSPECTION STORE - Listing documents for bot: {bot_id}")
+        print(f"🔍 INSPECTION STORE - Using database: {self.db_name}")
+        
         if not self.mongo_client:
+            print("❌ INSPECTION STORE - MongoDB client not available")
             return []
             
         return self._list_from_mongodb(bot_id)
     
     def _list_from_mongodb(self, bot_id: str) -> List[Dict[str, Any]]:
         """List documents from MongoDB"""
+        print(f"🔍 INSPECTION STORE - Querying documents for bot: {bot_id}")
+        
         documents = list(self.mongo_db.documents.find(
             {"bot_id": bot_id}
         ).sort("processed_at", -1))
+        
+        print(f"✅ INSPECTION STORE - Found {len(documents)} documents for bot: {bot_id}")
         
         return [
             {
