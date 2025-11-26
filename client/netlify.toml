@@ -1,9 +1,9 @@
 [build]
   command = "npm run build"
-  publish = "build"
+  publish = "dist"  # Change from "build" to "dist"
 
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"  # Upgrade to Node 20 for Vite compatibility
 
 [[redirects]]
   from = "/*"
