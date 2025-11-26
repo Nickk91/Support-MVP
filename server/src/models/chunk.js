@@ -11,11 +11,12 @@ const chunkSchema = new mongoose.Schema(
     page_number: { type: Number },
     metadata: { type: Object },
     chunking_strategy: { type: String },
-    vector_embedding: { type: [Number], index: true }, // for vector search
+    vector_embedding: { type: [Number], index: true },
   },
   {
     timestamps: true,
   }
 );
 
-export default mongoose.model("Chunk", chunkSchema);
+// Change from default export to named export
+export const Chunk = mongoose.model("Chunk", chunkSchema);
