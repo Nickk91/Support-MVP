@@ -1,11 +1,13 @@
-# python/app/routers/evaluate.py - UPDATE imports and chat function
+# python/app/routers/evaluate.py - UPDATED TO USE MONGODB DIRECTLY
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
 import logging
-from app.models.bot import get_bot_config_with_jwt, get_bot_config_with_fallback  # Ensure these imports
+from pymongo import MongoClient
+from bson import ObjectId
+from app.config import MONGODB_URI, MONGODB_DB_NAME
 import asyncio 
 
 router = APIRouter()
@@ -36,6 +38,129 @@ class EvaluationSession(BaseModel):
 # In-memory storage for evaluation sessions
 evaluation_sessions = {}
 
+# MongoDB connection
+def get_bots_collection():
+    """Get bots collection from MongoDB"""
+    client = MongoClient(MONGODB_URI)
+    db = client[MONGODB_DB_NAME]
+    return db.bots
+
+async def get_bot_config_from_mongodb(bot_id: str):
+    """Fetch bot configuration from MongoDB using _id"""
+    try:
+        bots_collection = get_bots_collection()
+        
+        # 🎯 CRITICAL FIX: Try both _id and bot_id fields
+        bot_data = None
+        
+        # First try: Use _id (the actual MongoDB ID from Express)
+        try:
+            bot_data = bots_collection.find_one({"_id": ObjectId(bot_id)})
+            if bot_data:
+                logger.info(f"✅ Found bot by _id: {bot_id}")
+        except Exception as e:
+            logger.info(f"🔍 Invalid ObjectId format, trying bot_id: {bot_id}")
+            pass  # Invalid ObjectId format
+        
+        # Second try: Use bot_id field (if _id didn't work)
+        if not bot_data:
+            bot_data = bots_collection.find_one({"bot_id": bot_id})
+            if bot_data:
+                logger.info(f"✅ Found bot by bot_id: {bot_id}")
+        
+        if not bot_data:
+            logger.warning(f"❌ Bot {bot_id} not found in MongoDB (tried _id and bot_id)")
+            return None
+        
+        logger.info(f"✅ Bot details: {bot_data.get('bot_name', 'Unknown')}")
+        logger.info(f"🎯 Personality: {bot_data.get('personality_type', 'professional')}")
+        logger.info(f"🎯 Safety: {bot_data.get('safety_level', 'standard')}")
+        
+        # Convert to the format expected by the rest of the system
+        return {
+            'id': str(bot_data['_id']),  # Convert ObjectId to string
+            'botName': bot_data.get('bot_name', 'Unknown Bot'),
+            'systemMessage': bot_data.get('system_message', ''),
+            'model': bot_data.get('model', 'gpt-4o-mini'),
+            'temperature': bot_data.get('temperature', 0.7),
+            'fallback': bot_data.get('fallback', ''),
+            'greeting': bot_data.get('greeting', ''),
+            'guardrails': bot_data.get('guardrails', ''),
+            'companyReference': bot_data.get('company_reference', bot_data.get('bot_name', 'Unknown')),
+            'personalityType': bot_data.get('personality_type', 'professional'),
+            'safetyLevel': bot_data.get('safety_level', 'standard'),
+            'files': [],
+            'ownerId': bot_data.get('owner_id', 'unknown')
+        }
+    except Exception as e:
+        logger.error(f"❌ Error fetching bot from MongoDB: {e}")
+        return None
+
+async def get_bot_config_with_fallback(bot_id: str, tenant_id: str, user_id: str = None):
+    """Get bot config from MongoDB with fallback"""
+    bot_data = await get_bot_config_from_mongodb(bot_id)
+    
+    if bot_data:
+        # Create a simple BotConfig-like object
+        class SimpleBotConfig:
+            def __init__(self, data):
+                self.bot_name = data['botName']
+                self.system_message = data['systemMessage']
+                self.model = data['model']
+                self.temperature = data['temperature']
+                self.fallback = data['fallback']
+                self.greeting = data['greeting']
+                self.guardrails = data['guardrails']
+                self.company_reference = data['companyReference']
+                self.personality_type = data['personalityType']
+                self.safety_level = data['safetyLevel']
+                self.files = data['files']
+                self.owner_id = data['ownerId']
+            
+            def get_template_info(self):
+                return {
+                    "personality": self.personality_type,
+                    "safety": self.safety_level,
+                    "company": self.company_reference,
+                    "is_custom_personality": self.personality_type == "custom",
+                    "is_custom_safety": self.safety_level == "custom"
+                }
+        
+        bot_config = SimpleBotConfig(bot_data)
+        template_info = bot_config.get_template_info()
+        logger.info(f"✅ Bot config fetched from MongoDB: {bot_config.bot_name}")
+        logger.info(f"🎯 Template config: {template_info}")
+        return bot_config
+    
+    # Fallback configuration
+    logger.warning(f"⚠️ Using fallback bot config for {bot_id}")
+    
+    class FallbackBotConfig:
+        def __init__(self, bot_id):
+            self.bot_name = f'Bot {bot_id}'
+            self.system_message = 'You are a helpful AI assistant. Answer questions based on the provided documentation.'
+            self.model = 'gpt-4o-mini'
+            self.temperature = 0.7
+            self.fallback = 'I apologize, but I cannot answer that question based on my current knowledge.'
+            self.greeting = 'Hello! How can I help you today?'
+            self.guardrails = 'Please ensure all responses are accurate and appropriate.'
+            self.company_reference = f'Bot {bot_id}'
+            self.personality_type = 'professional'
+            self.safety_level = 'standard'
+            self.files = []
+            self.owner_id = 'unknown'
+        
+        def get_template_info(self):
+            return {
+                "personality": self.personality_type,
+                "safety": self.safety_level,
+                "company": self.company_reference,
+                "is_custom_personality": self.personality_type == "custom",
+                "is_custom_safety": self.safety_level == "custom"
+            }
+    
+    return FallbackBotConfig(bot_id)
+
 @router.post("/evaluate/start")
 async def start_evaluation(request: StartEvaluationRequest):
     """Start a new evaluation session for a bot"""
@@ -64,7 +189,7 @@ async def evaluate_chat(
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None)
 ):
-    """Send a message in evaluation session with proper JWT handling"""
+    """Send a message in evaluation session with MongoDB bot config"""
     if request.session_id not in evaluation_sessions:
         raise HTTPException(status_code=404, detail="Evaluation session not found")
     
@@ -74,50 +199,25 @@ async def evaluate_chat(
     user_id = x_user_id or session.user_id
     tenant_id = x_tenant_id or session.tenant_id
     
-    # 🎯 CRITICAL FIX: Extract JWT token properly
-    jwt_token = None
-    if authorization:
-        if authorization.startswith("Bearer "):
-            jwt_token = authorization
-        else:
-            jwt_token = f"Bearer {authorization}"
-    
-    logger.info(f"🎯 Evaluation chat - JWT present: {jwt_token is not None}")
-    logger.info(f"   Bot ID: {request.message.bot_id}, User ID: {user_id}, Tenant: {tenant_id}")
-    logger.info(f"   Session messages count: {len(session.messages)}")  # 🎯 DEBUG
+    logger.info(f"🎯 Evaluation chat - Bot ID: {request.message.bot_id}, User ID: {user_id}, Tenant: {tenant_id}")
+    logger.info(f"   Session messages count: {len(session.messages)}")
     
     try:
         from app.rag.core import answer_query
         
-        # 🎯 GET BOT CONFIG WITH JWT AUTHENTICATION
-        bot_config = None
-        if jwt_token:
-            try:
-                bot_config = await get_bot_config_with_jwt(
-                    request.message.bot_id, 
-                    jwt_token,
-                    tenant_id
-                )
-                logger.info(f"✅ Bot config fetched via JWT: {bot_config.bot_name}")
-                logger.info(f"🎯 Bot greeting: '{bot_config.greeting}'")
-            except Exception as jwt_error:
-                logger.warning(f"⚠️ JWT auth failed, falling back to internal token: {jwt_error}")
+        # 🎯 CRITICAL FIX: Use MongoDB directly instead of Express server
+        bot_config = await get_bot_config_with_fallback(
+            request.message.bot_id,
+            tenant_id,
+            user_id
+        )
         
-        # 🎯 FALLBACK: Use internal token if JWT fails
-        if not bot_config:
-            try:
-                bot_config = await get_bot_config_with_fallback(
-                    request.message.bot_id,
-                    tenant_id,
-                    user_id
-                )
-                logger.info(f"✅ Bot config fetched via internal token: {bot_config.bot_name}")
-                logger.info(f"🎯 Bot greeting: '{bot_config.greeting}'")
-            except Exception as fallback_error:
-                logger.error(f"❌ All bot config methods failed: {fallback_error}")
-                raise HTTPException(status_code=500, detail="Could not fetch bot configuration")
+        logger.info(f"✅ Bot config: {bot_config.bot_name}")
+        logger.info(f"🎯 Personality: {bot_config.personality_type}, Safety: {bot_config.safety_level}")
+        logger.info(f"🎯 Company: {bot_config.company_reference}")
+        logger.info(f"🎯 Greeting: '{bot_config.greeting}'")
         
-        # 🎯 NEW: CHECK IF THIS IS THE FIRST MESSAGE AND RETURN GREETING
+        # 🎯 CHECK IF THIS IS THE FIRST MESSAGE AND RETURN GREETING
         if not session.messages:
             logger.info(f"🎯 FIRST MESSAGE DETECTED - Applying 4-second delay for greeting")
             logger.info(f"   User message: '{request.message.message}'")
