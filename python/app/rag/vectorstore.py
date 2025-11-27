@@ -9,6 +9,19 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 
+
+from __future__ import annotations
+
+import os
+import logging
+import shutil
+from typing import Callable, Optional, List
+
+# Use the community embeddings (the warning is just a deprecation notice)
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_core.documents import Document
+from langchain_core.vectorstores import VectorStore
+
 # Conditional imports for Pinecone
 try:
     from pinecone import Pinecone, ServerlessSpec
@@ -20,6 +33,7 @@ except ImportError:
 
 # Add logger definition
 logger = logging.getLogger(__name__)
+
 
 # ---------- Pinecone Configuration ----------
 def get_pinecone_client():
@@ -50,10 +64,10 @@ def ensure_pinecone_index(bot_id: str) -> str:
     existing_indexes = [index.name for index in pc.list_indexes()]
     
     if index_name not in existing_indexes:
-        # Create new index
+        # Create new index with HuggingFace dimension (384)
         pc.create_index(
             name=index_name,
-            dimension=384,  # all-MiniLM-L6-v2 dimension
+            dimension=384,  # 🎯 all-MiniLM-L6-v2 dimension
             metric="cosine",
             spec=ServerlessSpec(
                 cloud="aws",
@@ -80,7 +94,7 @@ def get_pinecone_store(bot_id: str) -> PineconeVectorStore:
         pinecone_api_key=os.getenv("PINECONE_API_KEY")
     )
 
-# ---------- Embeddings (unchanged) ----------
+# ---------- Embeddings (USE HUGGINGFACE) ----------
 def get_embeddings():
     """Get the embeddings model"""
     return HuggingFaceEmbeddings(
