@@ -5,17 +5,6 @@ import os
 import logging
 import shutil
 from typing import Callable, Optional, List
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_core.documents import Document
-from langchain_core.vectorstores import VectorStore
-
-
-from __future__ import annotations
-
-import os
-import logging
-import shutil
-from typing import Callable, Optional, List
 
 # Use the community embeddings (the warning is just a deprecation notice)
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -32,6 +21,7 @@ except ImportError:
     PineconeVectorStore = None
 
 # Add logger definition
+logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 
