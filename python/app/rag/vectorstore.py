@@ -6,8 +6,8 @@ import logging
 import shutil
 from typing import Callable, Optional, List
 
-# Use the community embeddings (the warning is just a deprecation notice)
-from langchain_community.embeddings import HuggingFaceEmbeddings
+# Switch to OpenAI embeddings for memory efficiency
+from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 
@@ -22,8 +22,6 @@ except ImportError:
 
 # Add logger definition
 logger = logging.getLogger(__name__)
-logger = logging.getLogger(__name__)
-
 
 # ---------- Pinecone Configuration ----------
 def get_pinecone_client():
@@ -39,9 +37,7 @@ def get_pinecone_client():
 
 def get_pinecone_index_name(bot_id: str) -> str:
     """Generate Pinecone index name for a bot"""
-    # Pinecone index names must be lowercase and alphanumeric, 45 chars max
     index_name = f"bot-{bot_id}".lower().replace('_', '-')
-    # Remove any invalid characters and truncate
     index_name = ''.join(c for c in index_name if c.isalnum() or c == '-')[:45]
     return index_name
 
@@ -54,10 +50,10 @@ def ensure_pinecone_index(bot_id: str) -> str:
     existing_indexes = [index.name for index in pc.list_indexes()]
     
     if index_name not in existing_indexes:
-        # Create new index with HuggingFace dimension (384)
+        # Create new index with OpenAI dimension (1536)
         pc.create_index(
             name=index_name,
-            dimension=384,  # 🎯 all-MiniLM-L6-v2 dimension
+            dimension=1536,  # 🎯 OpenAI embedding dimension
             metric="cosine",
             spec=ServerlessSpec(
                 cloud="aws",
@@ -84,14 +80,15 @@ def get_pinecone_store(bot_id: str) -> PineconeVectorStore:
         pinecone_api_key=os.getenv("PINECONE_API_KEY")
     )
 
-# ---------- Embeddings (USE HUGGINGFACE) ----------
+# ---------- Embeddings (SWITCHED TO OPENAI) ----------
 def get_embeddings():
-    """Get the embeddings model"""
-    return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': False}
+    """Get the embeddings model - using OpenAI for memory efficiency"""
+    return OpenAIEmbeddings(
+        model="text-embedding-3-small",  # Cost-effective and fast
+        openai_api_key=os.getenv("OPENAI_API_KEY")
     )
+
+# ... rest of your file remains the same
 
 # ---------- Local backends (keep for compatibility) ----------
 def get_chroma_store(bot_id: str):
