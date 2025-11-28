@@ -51,6 +51,7 @@ router.post("/send", authenticateToken, async (req, res) => {
         bot_id: botId,
         tenant_id: tenantId,
         user_id: userId,
+        max_chunks_per_bot: 100,
       },
       {
         timeout: 30000, // 30 second timeout

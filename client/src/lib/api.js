@@ -2,7 +2,9 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "http://localhost:4000/api", // Direct to your Node.js server
+  baseURL: import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/api`
+    : "http://localhost:4000/api",
   withCredentials: false,
 });
 

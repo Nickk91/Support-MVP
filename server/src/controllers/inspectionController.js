@@ -58,21 +58,34 @@ const inspectionController = {
         0
       );
 
-      // Extract unique pages
+      // FIX: Handle null/undefined page numbers properly
       const pages = [
         ...new Set(
           chunks
-            .map((chunk) => chunk.metadata?.page)
-            .filter((page) => page !== undefined && page !== null)
+            .map((chunk) => chunk.page_number)
+            .filter(
+              (page) => page !== undefined && page !== null && page !== ""
+            )
+            .map((page) => parseInt(page)) // Ensure numbers
         ),
       ];
+
+      // FIX: If no pages found (DOCX files), count as 1 "virtual" page
+      const pagesProcessed = pages.length > 0 ? pages.length : 1;
 
       inspectionData.summary = {
         total_chunks: totalChunks,
         total_characters: totalChars,
-        pages_processed: pages.length,
+        pages_processed: pagesProcessed, // Use the fixed count
         average_chunk_size:
           totalChunks > 0 ? Math.round(totalChars / totalChunks) : 0,
+        document_type:
+          chunks[0]?.metadata?.file_type ||
+          decodedDocumentPath.includes(".docx")
+            ? "docx"
+            : decodedDocumentPath.includes(".pdf")
+            ? "pdf"
+            : "unknown",
       };
 
       res.json(inspectionData);

@@ -1,11 +1,14 @@
-# python/app/rag/vectorstore.py - UPDATED FOR PINECONE COMPATIBILITY
+# python/app/rag/vectorstore.py - FIXED VERSION
 from __future__ import annotations
 
 import os
 import logging
 import shutil
+import time
 from typing import Callable, Optional, List
-from langchain_community.embeddings import HuggingFaceEmbeddings
+
+# Switch to OpenAI embeddings for memory efficiency
+from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 
@@ -22,8 +25,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ---------- Pinecone Configuration ----------
+# In app/rag/vectorstore.py - update the Pinecone functions
+
 def get_pinecone_client():
-    """Initialize Pinecone client"""
+    """Initialize Pinecone client with new SDK"""
     if not PINECONE_AVAILABLE:
         raise ImportError("Pinecone packages not installed. Run: pip install pinecone-client langchain-pinecone")
     
@@ -33,27 +38,19 @@ def get_pinecone_client():
     
     return Pinecone(api_key=api_key)
 
-def get_pinecone_index_name(bot_id: str) -> str:
-    """Generate Pinecone index name for a bot"""
-    # Pinecone index names must be lowercase and alphanumeric, 45 chars max
-    index_name = f"bot-{bot_id}".lower().replace('_', '-')
-    # Remove any invalid characters and truncate
-    index_name = ''.join(c for c in index_name if c.isalnum() or c == '-')[:45]
-    return index_name
-
-def ensure_pinecone_index(bot_id: str) -> str:
-    """Ensure Pinecone index exists, create if not"""
+def ensure_pinecone_index(index_name: str = "rag-platform"):
+    """Ensure Pinecone index exists with correct dimensions for OpenAI"""
     pc = get_pinecone_client()
-    index_name = get_pinecone_index_name(bot_id)
     
-    # Check if index exists
-    existing_indexes = [index.name for index in pc.list_indexes()]
+    # Check if index exists - new SDK format
+    existing_indexes = pc.list_indexes()
+    index_names = [index.name for index in existing_indexes.indexes] if hasattr(existing_indexes, 'indexes') else []
     
-    if index_name not in existing_indexes:
-        # Create new index
+    if index_name not in index_names:
+        # Create new index with OpenAI dimension (1536)
         pc.create_index(
             name=index_name,
-            dimension=384,  # all-MiniLM-L6-v2 dimension
+            dimension=1536,  # 🎯 OpenAI embedding dimension
             metric="cosine",
             spec=ServerlessSpec(
                 cloud="aws",
@@ -62,31 +59,40 @@ def ensure_pinecone_index(bot_id: str) -> str:
         )
         logger.info(f"✅ Created Pinecone index: {index_name}")
         # Wait for index to be ready
-        import time
-        time.sleep(10)
+        while True:
+            try:
+                index_description = pc.describe_index(index_name)
+                if hasattr(index_description, 'status') and index_description.status.ready:
+                    break
+                time.sleep(1)
+            except Exception:
+                time.sleep(1)
+        logger.info(f"✅ Pinecone index '{index_name}' is ready")
     
     return index_name
-
-def get_pinecone_store(bot_id: str) -> PineconeVectorStore:
-    """Get Pinecone vector store for a bot"""
-    if not PINECONE_AVAILABLE:
-        raise ImportError("Pinecone not available")
+def get_pinecone_store(bot_id: str):
+    """Get Pinecone vector store for a bot using namespaces"""
+    index_name = "rag-platform"  # 🎯 SINGLE index for all bots
+    namespace = f"bot_{bot_id}"  # 🎯 Use namespace to separate bot data
     
-    index_name = ensure_pinecone_index(bot_id)
+    # Ensure the single index exists with correct dimensions
+    ensure_pinecone_index(index_name)
     
-    return PineconeVectorStore(
+    # Initialize with namespace
+    embeddings = get_embeddings()
+    vector_store = PineconeVectorStore(
         index_name=index_name,
-        embedding=get_embeddings(),
-        pinecone_api_key=os.getenv("PINECONE_API_KEY")
+        embedding=embeddings,
+        namespace=namespace  # 🎯 CRITICAL: Separate data by bot
     )
+    return vector_store
 
-# ---------- Embeddings (unchanged) ----------
+# ---------- Embeddings (SWITCHED TO OPENAI) ----------
 def get_embeddings():
-    """Get the embeddings model"""
-    return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': False}
+    """Get the embeddings model - using OpenAI for memory efficiency"""
+    return OpenAIEmbeddings(
+        model="text-embedding-3-small",  # Cost-effective and fast
+        openai_api_key=os.getenv("OPENAI_API_KEY")
     )
 
 # ---------- Local backends (keep for compatibility) ----------
@@ -181,6 +187,11 @@ else:
     logger.warning("Pinecone not available. Install with: pip install pinecone-client langchain-pinecone")
 
 def _resolve_backend_name(override: Optional[str] = None) -> str:
+    """Force Pinecone in production if available"""
+    # 🎯 FORCE PINECONE IN PRODUCTION
+    if os.getenv("APP_ENV") == "production" and PINECONE_AVAILABLE:
+        return "pinecone"
+    
     name = (override or os.getenv("RAG_VECTOR_BACKEND") or "pinecone" if PINECONE_AVAILABLE else "chroma").strip().lower()
     if name not in _BACKENDS:
         raise ValueError(f"Unknown vector backend '{name}'. Supported: {', '.join(_BACKENDS)}")
@@ -195,25 +206,22 @@ def get_vectorstore(bot_id: str, backend: str = None) -> object:
 # ---------- Simplified Deletion for Pinecone ----------
 def delete_vectorstore(bot_id: str) -> bool:
     """
-    Delete vector store for a bot
+    Delete vector store for a bot - for Pinecone, we delete the namespace data
     """
     try:
         backend_name = _resolve_backend_name()
         
         if backend_name == "pinecone" and PINECONE_AVAILABLE:
+            # For Pinecone with single index, we delete all vectors in the bot's namespace
+            index_name = "rag-platform"
+            namespace = f"bot_{bot_id}"
+            
             pc = get_pinecone_client()
-            index_name = get_pinecone_index_name(bot_id)
+            index = pc.Index(index_name)
             
-            # Check if index exists
-            existing_indexes = [index.name for index in pc.list_indexes()]
-            
-            if index_name in existing_indexes:
-                # Delete the entire index
-                pc.delete_index(index_name)
-                logger.info(f"✅ Deleted Pinecone index: {index_name}")
-            else:
-                logger.info(f"ℹ️ No Pinecone index found for bot {bot_id}")
-            
+            # Delete all vectors in the bot's namespace
+            index.delete(delete_all=True, namespace=namespace)
+            logger.info(f"✅ Deleted all vectors in namespace '{namespace}' from Pinecone index '{index_name}'")
             return True
             
         else:
@@ -243,7 +251,12 @@ def delete_vectorstore(bot_id: str) -> bool:
         logger.error(f"❌ Failed to delete vector store for bot {bot_id}: {e}")
         return True
 
-# ---------- File-specific deletion ----------
+# Remove cleanup functions that are not needed for Pinecone
+def cleanup_pending_deletions():
+    """No-op for Pinecone, kept for API compatibility"""
+    logger.info("✅ Pinecone vector store - no pending deletions to cleanup")
+
+    # ---------- File-specific deletion ----------
 def delete_files_from_vectorstore(vectorstore, file_paths: List[str]) -> int:
     """
     Delete specific files from vector store by their source metadata
@@ -281,40 +294,55 @@ def delete_files_from_vectorstore(vectorstore, file_paths: List[str]) -> int:
                     
         else:
             # Local vector store deletion (Chroma/FAISS)
-            all_docs = vectorstore.get()
-            
-            if not all_docs or 'metadatas' not in all_docs:
-                return 0
-            
-            ids_to_delete = []
-            for i, metadata in enumerate(all_docs['metadatas']):
-                if metadata and 'source' in metadata:
-                    source_path = metadata['source']
-                    
-                    for file_path in file_paths:
-                        source_filename = source_path.split('/')[-1] if '/' in source_path else source_path
-                        target_filename = file_path.split('/')[-1] if '/' in file_path else file_path
+            # Note: This might need adjustment based on your specific vector store implementation
+            try:
+                # Try to get documents using the vector store's internal method
+                if hasattr(vectorstore, '_collection'):
+                    # ChromaDB approach
+                    collection = vectorstore._collection
+                    if hasattr(collection, 'get'):
+                        all_docs = collection.get()
                         
-                        if (source_path == file_path or
-                            source_filename == target_filename or
-                            source_path.endswith(file_path) or
-                            file_path in source_path):
+                        if all_docs and 'metadatas' in all_docs:
+                            ids_to_delete = []
+                            for i, metadata in enumerate(all_docs['metadatas']):
+                                if metadata and 'source' in metadata:
+                                    source_path = metadata['source']
+                                    
+                                    for file_path in file_paths:
+                                        source_filename = source_path.split('/')[-1] if '/' in source_path else source_path
+                                        target_filename = file_path.split('/')[-1] if '/' in file_path else file_path
+                                        
+                                        if (source_path == file_path or
+                                            source_filename == target_filename or
+                                            source_path.endswith(file_path) or
+                                            file_path in source_path):
+                                            
+                                            ids_to_delete.append(all_docs['ids'][i])
+                                            deleted_count += 1
+                                            break
                             
-                            ids_to_delete.append(all_docs['ids'][i])
+                            if ids_to_delete:
+                                collection.delete(ids=ids_to_delete)
+                                logger.info(f"✅ Deleted {len(ids_to_delete)} documents from vector store")
+                
+                elif hasattr(vectorstore, 'delete'):
+                    # Direct deletion method
+                    for file_path in file_paths:
+                        try:
+                            # This is a simplified approach - you might need to adjust based on your vector store
+                            vectorstore.delete(filter={"source": file_path})
                             deleted_count += 1
-                            break
-            
-            if ids_to_delete:
-                vectorstore.delete(ids=ids_to_delete)
-                logger.info(f"✅ Deleted {len(ids_to_delete)} documents from vector store")
+                            logger.info(f"✅ Deleted documents for file: {file_path}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Could not delete file {file_path}: {e}")
+                            continue
+                            
+            except Exception as e:
+                logger.error(f"❌ Error in file deletion for local vector store: {e}")
         
         return deleted_count
         
     except Exception as e:
         logger.error(f"❌ Error deleting files from vector store: {e}")
         return 0
-
-# Remove cleanup functions that are not needed for Pinecone
-def cleanup_pending_deletions():
-    """No-op for Pinecone, kept for API compatibility"""
-    logger.info("✅ Pinecone vector store - no pending deletions to cleanup")

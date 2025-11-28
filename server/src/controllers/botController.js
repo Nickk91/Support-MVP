@@ -2,7 +2,7 @@
 import { Bot } from "../models/Bot.js";
 import { User } from "../models/User.js";
 import Document from "../models/Document.js";
-import Chunk from "../models/chunk.js";
+import { Chunk } from "../models/chunk.js";
 import { nanoid } from "nanoid";
 import fs from "fs/promises";
 import path from "path";

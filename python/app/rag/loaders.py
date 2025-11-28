@@ -1,14 +1,14 @@
-# app/rag/loaders.py - UPDATED with proper AWS credential handling
+# app/rag/loaders.py - UPDATED with better error handling and fallbacks
 from typing import List
 import boto3
 from botocore.exceptions import ClientError
 import tempfile
 import os
 import logging
-from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_core.documents import Document
 from dotenv import load_dotenv
-import os
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -58,6 +58,163 @@ def extract_s3_key_from_url(s3_url: str) -> str:
             return '/'.join(parts[1:])  # Return everything after bucket name
     return s3_url  # Fallback to original
 
+def _load_docx_file(file_path: str) -> List[Document]:
+    """Load DOCX files with multiple fallback methods"""
+    try:
+        # Method 1: Try docx2txt first
+        try:
+            from langchain_community.document_loaders import Docx2txtLoader
+            log.info(f"📝 Loading Word document with Docx2txtLoader: {file_path}")
+            return Docx2txtLoader(file_path).load()
+        except ImportError:
+            log.warning("❌ Docx2txtLoader not available, trying python-docx")
+        
+        # Method 2: Try python-docx
+        try:
+            import docx
+            doc = docx.Document(file_path)
+            full_text = []
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    full_text.append(paragraph.text)
+            
+            if full_text:
+                content = "\n".join(full_text)
+                log.info(f"✅ Loaded DOCX with python-docx: {len(content)} characters")
+                return [Document(page_content=content, metadata={"source": file_path})]
+        except ImportError:
+            log.warning("❌ python-docx not available, trying unstructured")
+        
+        # Method 3: Try unstructured as final fallback
+        try:
+            from unstructured.partition.docx import partition_docx
+            elements = partition_docx(filename=file_path)
+            content = "\n".join([str(el) for el in elements])
+            log.info(f"✅ Loaded DOCX with unstructured: {len(content)} characters")
+            return [Document(page_content=content, metadata={"source": file_path})]
+        except ImportError:
+            log.error("❌ No DOCX processing libraries available")
+        
+        # Final fallback: empty document
+        log.error("❌ All DOCX loading methods failed")
+        return [Document(page_content="", metadata={"source": file_path, "error": "DOCX processing failed"})]
+        
+    except Exception as e:
+        log.error(f"❌ Error loading DOCX file {file_path}: {e}")
+        return [Document(page_content="", metadata={"source": file_path, "error": str(e)})]
+
+def _load_local_file(file_path: str) -> List[Document]:
+    """Load a local file using appropriate loader with better error handling"""
+    p = os.path.abspath(file_path)
+    if not os.path.exists(p):
+        raise FileNotFoundError(f"Path does not exist: {p}")
+
+    ext = os.path.splitext(p)[1].lower()
+    
+    try:
+        if ext == ".pdf":
+            log.info(f"📄 Loading PDF: {p}")
+            
+            # Method 1: Try PyPDFLoader first
+            try:
+                loader = PyPDFLoader(p)
+                docs = loader.load()
+                if docs and any(doc.page_content.strip() for doc in docs):
+                    log.info(f"✅ PDF loaded successfully with PyPDF: {len(docs)} pages")
+                    return docs
+                else:
+                    log.warning("⚠️ PyPDF loaded but no content found, trying fallback...")
+            except ImportError as e:
+                log.warning(f"⚠️ PyPDF not available: {e}, trying fallback...")
+            except Exception as e:
+                log.warning(f"⚠️ PyPDF failed: {e}, trying fallback...")
+            
+            # Method 2: Try UnstructuredPDFLoader as fallback
+            try:
+                from langchain_community.document_loaders import UnstructuredPDFLoader
+                loader = UnstructuredPDFLoader(p)
+                docs = loader.load()
+                if docs and any(doc.page_content.strip() for doc in docs):
+                    log.info(f"✅ PDF loaded successfully with UnstructuredPDF: {len(docs)} pages")
+                    return docs
+                else:
+                    log.warning("⚠️ UnstructuredPDF loaded but no content found")
+            except ImportError as e:
+                log.warning(f"⚠️ UnstructuredPDF not available: {e}")
+            except Exception as e:
+                log.warning(f"⚠️ UnstructuredPDF failed: {e}")
+            
+            # Method 3: Try pdfplumber as final fallback
+            try:
+                import pdfplumber
+                content_parts = []
+                with pdfplumber.open(p) as pdf:
+                    for page_num, page in enumerate(pdf.pages):
+                        text = page.extract_text()
+                        if text and text.strip():
+                            content_parts.append(f"Page {page_num + 1}:\n{text}")
+                
+                if content_parts:
+                    content = "\n\n".join(content_parts)
+                    docs = [Document(page_content=content, metadata={"source": p, "total_pages": len(pdf.pages)})]
+                    log.info(f"✅ PDF loaded successfully with pdfplumber: {len(pdf.pages)} pages")
+                    return docs
+            except ImportError as e:
+                log.warning(f"⚠️ pdfplumber not available: {e}")
+            except Exception as e:
+                log.warning(f"⚠️ pdfplumber failed: {e}")
+            
+            # All methods failed
+            log.error(f"❌ All PDF loading methods failed for {p}")
+            return [Document(
+                page_content="", 
+                metadata={"source": p, "error": "PDF processing failed - no content extracted"}
+            )]
+            
+        elif ext in [".docx", ".doc"]:
+            return _load_docx_file(p)
+            
+        else:
+            # Handles .txt, .md, .csv, etc.
+            log.info(f"📋 Loading text file: {p}")
+            try:
+                loader = TextLoader(p, encoding="utf-8")
+                docs = loader.load()
+                if docs and docs[0].page_content.strip():
+                    log.info(f"✅ Text file loaded successfully: {len(docs[0].page_content)} characters")
+                    return docs
+                else:
+                    log.warning("⚠️ Text file loaded but no content found")
+            except UnicodeDecodeError:
+                log.warning(f"UTF-8 failed for {p}, trying latin-1")
+                # Fallback to latin-1 encoding if UTF-8 fails
+                try:
+                    loader = TextLoader(p, encoding="latin-1")
+                    docs = loader.load()
+                    if docs and docs[0].page_content.strip():
+                        log.info(f"✅ Text file loaded with latin-1: {len(docs[0].page_content)} characters")
+                        return docs
+                    else:
+                        log.warning("⚠️ Text file loaded with latin-1 but no content found")
+                except Exception as e:
+                    log.error(f"❌ Latin-1 encoding also failed: {e}")
+            except Exception as e:
+                log.error(f"❌ Error loading text file {p}: {e}")
+            
+            # Return empty document if all text loading methods fail
+            return [Document(
+                page_content="", 
+                metadata={"source": p, "error": "Text processing failed - no content extracted"}
+            )]
+                
+    except Exception as e:
+        log.error(f"❌ Error loading file {p}: {e}")
+        # Return empty document with error metadata instead of crashing
+        return [Document(
+            page_content="", 
+            metadata={"source": p, "error": str(e)}
+        )]
+    
 def _load_one(path: str) -> List[Document]:
     original_path = path  # Keep original S3 URL
     
@@ -68,15 +225,22 @@ def _load_one(path: str) -> List[Document]:
         try:
             docs = _load_local_file(local_path)
             
-            # 🎯 Extract S3 key and add to metadata
-            s3_key = extract_s3_key_from_url(path)
+            # 🎯 CRITICAL: Check if we actually got content
+            valid_docs = []
             for doc in docs:
-                doc.metadata['original_source'] = original_path  # Keep original S3 URL
-                doc.metadata['s3_key'] = s3_key  # Store S3 key
-                # Keep source as original for now - core.py will handle the replacement
-                doc.metadata['source'] = original_path
+                if doc.page_content and doc.page_content.strip():
+                    # Extract S3 key and add to metadata
+                    s3_key = extract_s3_key_from_url(path)
+                    doc.metadata['original_source'] = original_path
+                    doc.metadata['s3_key'] = s3_key
+                    doc.metadata['source'] = original_path
+                    valid_docs.append(doc)
+                else:
+                    log.warning(f"⚠️ Empty document content from {path}")
             
-            return docs
+            log.info(f"📊 Loaded {len(valid_docs)} valid documents from {path}")
+            return valid_docs
+            
         finally:
             # Clean up temporary file
             try:
@@ -88,50 +252,58 @@ def _load_one(path: str) -> List[Document]:
     else:
         # Local file path
         docs = _load_local_file(path)
-        # For local files, use filename as source
-        filename = os.path.basename(path)
+        
+        # Filter out empty documents
+        valid_docs = []
         for doc in docs:
-            doc.metadata['source'] = filename
-            doc.metadata['original_source'] = path
-        return docs
-
-def _load_local_file(file_path: str) -> List[Document]:
-    """Load a local file using existing loader logic"""
-    p = os.path.abspath(file_path)
-    if not os.path.exists(p):
-        raise FileNotFoundError(f"Path does not exist: {p}")
-
-    ext = os.path.splitext(p)[1].lower()
-    
-    if ext == ".pdf":
-        log.info(f"📄 Loading PDF: {p}")
-        return PyPDFLoader(p).load()
-    elif ext in [".docx", ".doc"]:
-        log.info(f"📝 Loading Word document: {p}")
-        return Docx2txtLoader(p).load()
-    else:
-        # Handles .txt, .md, .csv, etc.
-        log.info(f"📋 Loading text file: {p}")
-        try:
-            return TextLoader(p, encoding="utf-8").load()
-        except UnicodeDecodeError:
-            log.warning(f"UTF-8 failed for {p}, trying latin-1")
-            # Fallback to latin-1 encoding if UTF-8 fails
-            return TextLoader(p, encoding="latin-1").load()
+            if doc.page_content and doc.page_content.strip():
+                # For local files, use filename as source
+                filename = os.path.basename(path)
+                doc.metadata['source'] = filename
+                doc.metadata['original_source'] = path
+                valid_docs.append(doc)
+            else:
+                log.warning(f"⚠️ Empty document content from {path}")
+        
+        log.info(f"📊 Loaded {len(valid_docs)} valid documents from {path}")
+        return valid_docs
 
 def load_paths(paths: List[str]) -> List[Document]:
+    """Load documents from paths with comprehensive logging"""
     docs: List[Document] = []
-    for raw in paths:
+    
+    log.info(f"🚀 Starting to load {len(paths)} paths")
+    
+    for raw_path in paths:
         try:
-            log.info(f"🚀 Processing file: {raw}")
-            docs.extend(_load_one(raw))
-            log.info(f"✅ Successfully loaded: {raw}")
+            log.info(f"🔍 Processing file: {raw_path}")
+            file_docs = _load_one(raw_path)
+            
+            if file_docs:
+                docs.extend(file_docs)
+                log.info(f"✅ Successfully loaded {len(file_docs)} documents from: {raw_path}")
+                
+                # Log content preview for debugging
+                for i, doc in enumerate(file_docs):
+                    content_preview = doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content
+                    log.info(f"   📄 Doc {i}: {len(doc.page_content)} chars, preview: '{content_preview}'")
+            else:
+                log.warning(f"⚠️ No documents loaded from: {raw_path}")
+                
         except Exception as e:
-            log.error(f"❌ Failed to load {raw}: {e}")
-            # Continue with other files even if one fails
+            log.error(f"❌ Failed to load {raw_path}: {e}")
+            # Add empty document to continue processing but mark the error
+            docs.append(Document(
+                page_content="", 
+                metadata={"source": raw_path, "error": str(e)}
+            ))
             continue
-    return docs
-
+    
+    # Final summary
+    valid_docs = [doc for doc in docs if doc.page_content and doc.page_content.strip()]
+    log.info(f"📊 LOADING SUMMARY: {len(valid_docs)} valid documents out of {len(paths)} paths")
+    
+    return valid_docs
 
 def load_s3_paths(s3_urls: List[str]) -> List[Document]:
     """Load documents from S3 URLs"""

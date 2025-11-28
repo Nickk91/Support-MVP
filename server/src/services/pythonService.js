@@ -1,4 +1,4 @@
-// server\services\pythonService.js - CORRECTED VERSION
+// server\services\pythonService.js - UPDATED WITH CHUNK LIMITS
 import axios from "axios";
 
 class PythonService {
@@ -163,9 +163,16 @@ class PythonService {
   }
 
   /**
-   * Ingest files for a bot
+   * 🎯 UPDATED: Ingest files for a bot with chunk limit
    */
-  async ingestFiles(botId, paths, userId, tenantId = null, userRole = null) {
+  async ingestFiles(
+    botId,
+    paths,
+    userId,
+    tenantId = null,
+    userRole = null,
+    maxChunksPerBot = 100
+  ) {
     const headers = {
       "X-User-ID": userId,
       "X-Bot-ID": botId,
@@ -183,7 +190,12 @@ class PythonService {
       bot_id: botId,
       paths: paths,
       user_id: userId,
+      max_chunks_per_bot: maxChunksPerBot, // 🎯 NEW: Pass chunk limit
     };
+
+    console.log(
+      `🎯 Python Service - Ingesting with chunk limit: ${maxChunksPerBot}`
+    );
 
     return this.request("POST", "/api/ingest", data, headers);
   }
@@ -404,7 +416,6 @@ class PythonService {
   /**
    * Send message in evaluation session
    */
-  // server/services/pythonService.js - UPDATE evaluateChat method
   async evaluateChat(
     sessionId,
     message,

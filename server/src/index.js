@@ -36,6 +36,8 @@ async function main() {
 
   const app = express();
 
+  app.set("trust proxy", 1);
+
   // ========================
   // ENHANCED SECURITY MIDDLEWARE
   // ========================
@@ -138,7 +140,7 @@ async function main() {
         ok: true,
         pythonService: {
           status: health.ok ? "connected" : "disconnected",
-          baseURL: process.env.PYTHON_RAG_URL || "http://localhost:8000",
+          baseURL: process.env.PYTHON_SERVICE_URL || "http://localhost:8000",
           details: health.ok ? health.data : health.error,
         },
       });

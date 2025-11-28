@@ -47,11 +47,13 @@ def ingest_files(
     tenant_id: Optional[str] = None,
     chunk_size: int = 800,
     chunk_overlap: int = 120,
+    max_chunks_per_bot: int = 100,  # 🎯 NEW: Chunk limit parameter
 ) -> int:
     # ADD COMPREHENSIVE DEBUG LOGGING FOR DATABASE
     print(f"🔍 INGEST PROCESS - Starting ingest for bot: {bot_id}")
     print(f"🔍 INGEST PROCESS - APP_ENV: {APP_ENV}")
     print(f"🔍 INGEST PROCESS - MONGODB_DB_NAME: {MONGODB_DB_NAME}")
+    print(f"🎯 CHUNK LIMIT - Max chunks allowed: {max_chunks_per_bot}")  # 🎯 NEW: Log limit
     
     # Debug: list available databases
     client = MongoClient(MONGODB_URI)
@@ -97,6 +99,17 @@ def ingest_files(
         
     chunks = splitter.split_documents(docs)
     print(f"🔍 INGEST PROCESS - Created {len(chunks)} chunks from {len(docs)} documents")
+
+    # 🎯 NEW: Apply chunk limit before processing
+    original_chunk_count = len(chunks)
+    chunks_truncated = 0
+    
+    if len(chunks) > max_chunks_per_bot:
+        chunks_truncated = len(chunks) - max_chunks_per_bot
+        print(f"⚠️ CHUNK LIMIT - Truncating {len(chunks)} chunks to {max_chunks_per_bot} (removed {chunks_truncated} chunks)")
+        chunks = chunks[:max_chunks_per_bot]
+    else:
+        print(f"✅ CHUNK LIMIT - Within limit: {len(chunks)}/{max_chunks_per_bot} chunks")
 
     # Scope metadata
     scope = f"user:{user_id}" if user_id else "global"
@@ -164,16 +177,30 @@ def ingest_files(
             document_path=source_path,  # 🚨 This will now be the S3 key instead of local path
             chunks_data=chunks_data,
             user_id=user_id,
-            tenant_id=tenant_id
+            tenant_id=tenant_id,
+            # 🎯 NEW: Add limit information
+            limit_info={
+                "max_chunks_per_bot": max_chunks_per_bot,
+                "original_chunk_count": original_chunk_count,
+                "chunks_after_limiting": len(chunks),
+                "chunks_truncated": chunks_truncated
+            }
         )
 
     # Upsert to vector store
-    print(f"🔍 INGEST PROCESS - Adding {len(chunks)} chunks to vector store")
+    print(f"🔍 INGEST PROCESS - Adding {len(chunks)} chunks to vector store (after limiting)")
     vs = get_vectorstore(bot_id)
     vs.add_documents(chunks)
     
+    # 🎯 NEW: Final summary with limit info
+    if chunks_truncated > 0:
+        print(f"⚠️ INGEST SUMMARY - Limited to {len(chunks)}/{original_chunk_count} chunks ({chunks_truncated} truncated)")
+    else:
+        print(f"✅ INGEST SUMMARY - Processed all {len(chunks)} chunks (within limit)")
+    
     print(f"✅ INGEST PROCESS - Completed successfully for bot: {bot_id}")
     return len(chunks)
+
 
 # KEEP _answer_with_llm_only but update return handling
 def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
