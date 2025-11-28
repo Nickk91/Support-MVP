@@ -36,6 +36,26 @@ export const upload = multer({
   },
 });
 
+// 🎯 NEW: Define chunk limits per user tier
+const CHUNK_LIMITS = {
+  FREE_TIER: 100,
+  PREMIUM_TIER: 1000,
+  ENTERPRISE_TIER: 10000,
+};
+
+// 🎯 NEW: Helper function to get user tier
+const getUserTier = (userId, userRole) => {
+  // For now, return FREE_TIER for all users
+  // Later, you can implement based on user subscription or role
+  return "FREE_TIER";
+};
+
+// 🎯 NEW: Helper function to get chunk limit for user
+const getUserChunkLimit = (userId, userRole) => {
+  const userTier = getUserTier(userId, userRole);
+  return CHUNK_LIMITS[userTier] || CHUNK_LIMITS.FREE_TIER;
+};
+
 export const uploadFiles = async (req, res, next) => {
   let processingStarted = false;
   const processedFiles = [];
@@ -76,6 +96,12 @@ export const uploadFiles = async (req, res, next) => {
         message: "botId is required",
       });
     }
+
+    // 🎯 NEW: Get chunk limit for this user
+    const maxChunksPerBot = getUserChunkLimit(req.user.userId, req.user.role);
+    console.log(
+      `🎯 CHUNK LIMIT - User ${req.user.userId} limit: ${maxChunksPerBot} chunks`
+    );
 
     processingStarted = true;
     const results = [];
@@ -121,14 +147,15 @@ export const uploadFiles = async (req, res, next) => {
 
         console.log(`✅ File uploaded to S3: ${file.originalname} -> ${s3Url}`);
 
-        // Ingest file via centralized Python service using S3 URL
+        // 🎯 UPDATED: Ingest file with chunk limit
         try {
           const ingestResult = await pythonService.ingestFiles(
             botId,
             [s3Url], // Pass S3 URL instead of local path
             req.user.userId,
             req.user.tenantId,
-            req.user.role
+            req.user.role,
+            maxChunksPerBot // 🎯 NEW: Pass chunk limit
           );
 
           // Create file record with S3 info
@@ -152,12 +179,14 @@ export const uploadFiles = async (req, res, next) => {
             chunks: ingestResult.chunks_added || 0,
             s3Url: s3Url,
             message: `Successfully processed and ingested ${file.originalname}`,
+            // 🎯 NEW: Include limit info in response
+            limit_info: ingestResult.limit_info || null,
           });
 
           console.log(
             `✅ File ingested from S3: ${file.originalname} -> ${
               ingestResult.chunks_added || 0
-            } chunks`
+            } chunks (limit: ${maxChunksPerBot})`
           );
         } catch (ingestError) {
           console.error(
@@ -254,6 +283,11 @@ export const uploadFiles = async (req, res, next) => {
       0
     );
 
+    // 🎯 NEW: Add limit info to summary
+    const limitedFiles = results.filter(
+      (r) => r.limit_info && r.limit_info.chunks_truncated > 0
+    ).length;
+
     res.json({
       ok: true,
       files: results,
@@ -264,6 +298,8 @@ export const uploadFiles = async (req, res, next) => {
         failedUploads,
         totalChunks,
         totalProcessed: fileRecords.length,
+        maxChunksPerBot, // 🎯 NEW: Show user's limit
+        limitedFiles, // 🎯 NEW: Show how many files were limited
       },
       message: `Processed ${req.files.length} files (${successfulUploads} successful, ${failedUploads} failed)`,
     });
@@ -334,13 +370,14 @@ export const handleUploadErrors = (error, req, res, next) => {
   next(error);
 };
 
-// Additional utility function for single file processing
+// 🎯 UPDATED: Additional utility function for single file processing
 export const processSingleFile = async (
   file,
   botId,
   userId,
   tenantId = null,
-  userRole = null
+  userRole = null,
+  maxChunksPerBot = 100 // 🎯 NEW: Default chunk limit
 ) => {
   try {
     // Generate S3 file key
@@ -369,13 +406,14 @@ export const processSingleFile = async (
 
     console.log(`✅ File uploaded to S3: ${file.originalname} -> ${s3Url}`);
 
-    // Ingest via Python service
+    // 🎯 UPDATED: Ingest with chunk limit
     const ingestResult = await pythonService.ingestFiles(
       botId,
       [s3Url],
       userId,
       tenantId,
-      userRole
+      userRole,
+      maxChunksPerBot // 🎯 NEW: Pass chunk limit
     );
 
     // Create file record
@@ -396,6 +434,7 @@ export const processSingleFile = async (
       chunks: ingestResult.chunks_added || 0,
       s3Url,
       message: `Successfully processed ${file.originalname}`,
+      limit_info: ingestResult.limit_info || null, // 🎯 NEW: Include limit info
     };
   } catch (error) {
     console.error(

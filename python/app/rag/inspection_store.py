@@ -1,4 +1,4 @@
-# python\app\rag\inspection_store.py
+#app\rag\inspection_store.py
 
 import json
 from datetime import datetime
@@ -54,7 +54,8 @@ class InspectionStore:
         document_path: str, 
         chunks_data: List[Dict[str, Any]],
         user_id: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        tenant_id: Optional[str] = None,
+        limit_info: Optional[Dict] = None  # 🎯 NEW: Add limit_info parameter
     ):
         """Save inspection data to MongoDB only (no SQLite)"""
         print(f"🔍 INSPECTION STORE - Saving inspection data for bot: {bot_id}")
@@ -62,34 +63,46 @@ class InspectionStore:
         print(f"🔍 INSPECTION STORE - Chunks to save: {len(chunks_data)}")
         print(f"🔍 INSPECTION STORE - Using database: {self.db_name}")
         
+        # 🎯 NEW: Log limit info if provided
+        if limit_info:
+            print(f"🎯 INSPECTION STORE - Limit info: {limit_info}")
+        
         if not self.mongo_client:
             print("❌ INSPECTION STORE - MongoDB client not available, skipping save")
             return
         
         try:
-            self._save_to_mongodb(bot_id, document_path, chunks_data, user_id, tenant_id)
+            self._save_to_mongodb(bot_id, document_path, chunks_data, user_id, tenant_id, limit_info)
             print(f"✅ INSPECTION STORE - Saved {len(chunks_data)} chunks to MongoDB for {document_path}")
         except Exception as e:
             print(f"❌ INSPECTION STORE - Failed to save to MongoDB: {e}")
     
-    def _save_to_mongodb(self, bot_id: str, document_path: str, chunks_data: List[Dict], user_id: str = None, tenant_id: str = None):
-        """Save inspection data to MongoDB"""
+    def _save_to_mongodb(self, bot_id: str, document_path: str, chunks_data: List[Dict], user_id: str = None, tenant_id: str = None, limit_info: Dict = None):
+        """Save inspection data to MongoDB with limit info"""
         print(f"🔍 INSPECTION STORE - Starting MongoDB save for bot: {bot_id}")
+        
+        # 🎯 UPDATED: Include limit_info in document metadata
+        document_update_data = {
+            "bot_id": bot_id,
+            "document_path": document_path,
+            "file_name": document_path.split("/")[-1],
+            "user_id": user_id,
+            "tenant_id": tenant_id,
+            "chunk_count": len(chunks_data),
+            "processed_at": datetime.utcnow(),
+            "status": "processed"
+        }
+        
+        # 🎯 NEW: Add limit info if provided
+        if limit_info:
+            document_update_data["limit_info"] = limit_info
+            print(f"🎯 INSPECTION STORE - Adding limit info to document: {limit_info}")
         
         # Save document metadata
         result = self.mongo_db.documents.update_one(
             {"bot_id": bot_id, "document_path": document_path},
             {
-                "$set": {
-                    "bot_id": bot_id,
-                    "document_path": document_path,
-                    "file_name": document_path.split("/")[-1],
-                    "user_id": user_id,
-                    "tenant_id": tenant_id,
-                    "chunk_count": len(chunks_data),
-                    "processed_at": datetime.utcnow(),
-                    "status": "processed"
-                }
+                "$set": document_update_data
             },
             upsert=True
         )
@@ -163,7 +176,9 @@ class InspectionStore:
             return None
         
         print(f"✅ INSPECTION STORE - Found {len(chunks)} chunks for bot: {bot_id}")
-        return {
+        
+        # 🎯 UPDATED: Include limit_info in response if available
+        response_data = {
             "bot_id": bot_id,
             "document_path": document_path,
             "parsing_result": chunks,
@@ -171,6 +186,13 @@ class InspectionStore:
             "tenant_id": document.get("tenant_id"),
             "created_at": document.get("processed_at")
         }
+        
+        # 🎯 NEW: Add limit_info to response if it exists
+        if "limit_info" in document:
+            response_data["limit_info"] = document["limit_info"]
+            print(f"🎯 INSPECTION STORE - Including limit info in response: {document['limit_info']}")
+        
+        return response_data
     
     def list_documents(self, bot_id: str) -> List[Dict[str, Any]]:
         """List documents from MongoDB"""
@@ -200,7 +222,9 @@ class InspectionStore:
                 "user_id": doc.get("user_id"),
                 "file_size": doc.get("file_size", 0),
                 "status": doc.get("status", "processed"),
-                "chunk_count": doc.get("chunk_count", 0)
+                "chunk_count": doc.get("chunk_count", 0),
+                # 🎯 NEW: Include limit info in document listing
+                "limit_info": doc.get("limit_info")
             }
             for doc in documents
         ]

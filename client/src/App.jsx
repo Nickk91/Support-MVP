@@ -22,12 +22,12 @@ export default function App() {
         <nav className="flex gap-3">
           {user && (
             <>
-              <a href="/dashboard" className="text-sm font-medium">
+              {/* <a href="/dashboard" className="text-sm font-medium">
                 Dashboard
-              </a>
-              <a href="/onboarding" className="text-sm font-medium">
+              </a> */}
+              {/* <a href="/onboarding" className="text-sm font-medium">
                 Create Bot
-              </a>
+              </a> */}
             </>
           )}
         </nav>

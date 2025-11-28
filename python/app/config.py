@@ -57,3 +57,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+    MAX_CHUNKS_PER_BOT = 400
+MAX_CHUNKS_PER_DOCUMENT = 200  # Optional: per-document limit
