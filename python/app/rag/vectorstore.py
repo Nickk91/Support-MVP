@@ -187,6 +187,11 @@ else:
     logger.warning("Pinecone not available. Install with: pip install pinecone-client langchain-pinecone")
 
 def _resolve_backend_name(override: Optional[str] = None) -> str:
+    """Force Pinecone in production if available"""
+    # 🎯 FORCE PINECONE IN PRODUCTION
+    if os.getenv("APP_ENV") == "production" and PINECONE_AVAILABLE:
+        return "pinecone"
+    
     name = (override or os.getenv("RAG_VECTOR_BACKEND") or "pinecone" if PINECONE_AVAILABLE else "chroma").strip().lower()
     if name not in _BACKENDS:
         raise ValueError(f"Unknown vector backend '{name}'. Supported: {', '.join(_BACKENDS)}")

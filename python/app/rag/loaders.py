@@ -114,10 +114,62 @@ def _load_local_file(file_path: str) -> List[Document]:
     try:
         if ext == ".pdf":
             log.info(f"📄 Loading PDF: {p}")
-            loader = PyPDFLoader(p)
-            docs = loader.load()
-            log.info(f"✅ PDF loaded successfully: {len(docs)} pages")
-            return docs
+            
+            # Method 1: Try PyPDFLoader first
+            try:
+                loader = PyPDFLoader(p)
+                docs = loader.load()
+                if docs and any(doc.page_content.strip() for doc in docs):
+                    log.info(f"✅ PDF loaded successfully with PyPDF: {len(docs)} pages")
+                    return docs
+                else:
+                    log.warning("⚠️ PyPDF loaded but no content found, trying fallback...")
+            except ImportError as e:
+                log.warning(f"⚠️ PyPDF not available: {e}, trying fallback...")
+            except Exception as e:
+                log.warning(f"⚠️ PyPDF failed: {e}, trying fallback...")
+            
+            # Method 2: Try UnstructuredPDFLoader as fallback
+            try:
+                from langchain_community.document_loaders import UnstructuredPDFLoader
+                loader = UnstructuredPDFLoader(p)
+                docs = loader.load()
+                if docs and any(doc.page_content.strip() for doc in docs):
+                    log.info(f"✅ PDF loaded successfully with UnstructuredPDF: {len(docs)} pages")
+                    return docs
+                else:
+                    log.warning("⚠️ UnstructuredPDF loaded but no content found")
+            except ImportError as e:
+                log.warning(f"⚠️ UnstructuredPDF not available: {e}")
+            except Exception as e:
+                log.warning(f"⚠️ UnstructuredPDF failed: {e}")
+            
+            # Method 3: Try pdfplumber as final fallback
+            try:
+                import pdfplumber
+                content_parts = []
+                with pdfplumber.open(p) as pdf:
+                    for page_num, page in enumerate(pdf.pages):
+                        text = page.extract_text()
+                        if text and text.strip():
+                            content_parts.append(f"Page {page_num + 1}:\n{text}")
+                
+                if content_parts:
+                    content = "\n\n".join(content_parts)
+                    docs = [Document(page_content=content, metadata={"source": p, "total_pages": len(pdf.pages)})]
+                    log.info(f"✅ PDF loaded successfully with pdfplumber: {len(pdf.pages)} pages")
+                    return docs
+            except ImportError as e:
+                log.warning(f"⚠️ pdfplumber not available: {e}")
+            except Exception as e:
+                log.warning(f"⚠️ pdfplumber failed: {e}")
+            
+            # All methods failed
+            log.error(f"❌ All PDF loading methods failed for {p}")
+            return [Document(
+                page_content="", 
+                metadata={"source": p, "error": "PDF processing failed - no content extracted"}
+            )]
             
         elif ext in [".docx", ".doc"]:
             return _load_docx_file(p)
@@ -128,15 +180,32 @@ def _load_local_file(file_path: str) -> List[Document]:
             try:
                 loader = TextLoader(p, encoding="utf-8")
                 docs = loader.load()
-                log.info(f"✅ Text file loaded successfully: {len(docs[0].page_content) if docs else 0} characters")
-                return docs
+                if docs and docs[0].page_content.strip():
+                    log.info(f"✅ Text file loaded successfully: {len(docs[0].page_content)} characters")
+                    return docs
+                else:
+                    log.warning("⚠️ Text file loaded but no content found")
             except UnicodeDecodeError:
                 log.warning(f"UTF-8 failed for {p}, trying latin-1")
                 # Fallback to latin-1 encoding if UTF-8 fails
-                loader = TextLoader(p, encoding="latin-1")
-                docs = loader.load()
-                log.info(f"✅ Text file loaded with latin-1: {len(docs[0].page_content) if docs else 0} characters")
-                return docs
+                try:
+                    loader = TextLoader(p, encoding="latin-1")
+                    docs = loader.load()
+                    if docs and docs[0].page_content.strip():
+                        log.info(f"✅ Text file loaded with latin-1: {len(docs[0].page_content)} characters")
+                        return docs
+                    else:
+                        log.warning("⚠️ Text file loaded with latin-1 but no content found")
+                except Exception as e:
+                    log.error(f"❌ Latin-1 encoding also failed: {e}")
+            except Exception as e:
+                log.error(f"❌ Error loading text file {p}: {e}")
+            
+            # Return empty document if all text loading methods fail
+            return [Document(
+                page_content="", 
+                metadata={"source": p, "error": "Text processing failed - no content extracted"}
+            )]
                 
     except Exception as e:
         log.error(f"❌ Error loading file {p}: {e}")
@@ -145,7 +214,7 @@ def _load_local_file(file_path: str) -> List[Document]:
             page_content="", 
             metadata={"source": p, "error": str(e)}
         )]
-
+    
 def _load_one(path: str) -> List[Document]:
     original_path = path  # Keep original S3 URL
     
