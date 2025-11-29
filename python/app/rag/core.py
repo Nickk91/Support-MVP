@@ -160,6 +160,16 @@ def ingest_files(
         
         chunks_data = []
         for i, chunk in enumerate(document_chunks):
+            # FIX: Start page numbers from 1 instead of 0
+            page_number = chunk.metadata.get("page", None)
+            if page_number is not None:
+                # If page number exists, ensure it starts from 1
+                # Some PDF loaders might return 0-based page numbers
+                page_number = page_number + 1 if isinstance(page_number, int) and page_number >= 0 else 1
+            else:
+                # If no page number, use chunk index + 1
+                page_number = i + 1
+            
             chunks_data.append({
                 "chunk_id": f"{source_path}_{i}",
                 "content": chunk.page_content,
@@ -167,7 +177,7 @@ def ingest_files(
                 "token_count": len(chunk.page_content.split()),
                 "char_count": len(chunk.page_content),
                 "chunk_index": i,
-                "page_number": chunk.metadata.get("page", None),
+                "page_number": page_number,  # FIXED: Now starts from 1
                 "source": source_path  # This will now be the S3 key!
             })
         
@@ -200,7 +210,6 @@ def ingest_files(
     
     print(f"✅ INGEST PROCESS - Completed successfully for bot: {bot_id}")
     return len(chunks)
-
 
 # KEEP _answer_with_llm_only but update return handling
 def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
