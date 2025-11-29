@@ -24,7 +24,7 @@ export default function DocumentAnalysis({
   }
 
   return (
-    <Card className="lg:col-span-2">
+    <Card className="lg:col-span-2 lg:h-[695px] ">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -40,7 +40,7 @@ export default function DocumentAnalysis({
         <div className="space-y-6">
           <DocumentSummary inspectionData={inspectionData} />
 
-          <TestQuerySection selectedDocument={selectedDocument} botId={botId} />
+          {/* <TestQuerySection selectedDocument={selectedDocument} botId={botId} /> */}
 
           <Separator />
 
