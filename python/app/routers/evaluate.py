@@ -335,3 +335,37 @@ async def end_evaluation(session_id: str):
         logger.info(f"Ended evaluation session: {session_id}")
     
     return {"message": "Evaluation session ended"}
+
+
+# Add to existing evaluate.py file
+# ADD THIS DEBUG ENDPOINT AT THE BOTTOM:
+@router.get("/debug/vectorstore-status")
+async def debug_vectorstore_status(bot_id: str = "6929da21940b144ec2a916c6"):
+    """Debug endpoint to check vector store status"""
+    try:
+        from app.rag.vectorstore import get_vectorstore
+        from app.config import MONGODB_URI, MONGODB_DB_NAME
+        from pymongo import MongoClient
+        
+        # Check MongoDB connection
+        client = MongoClient(MONGODB_URI)
+        db = client[MONGODB_DB_NAME]
+        collections = db.list_collection_names()
+        
+        # Check vector store
+        vectorstore = get_vectorstore(bot_id)
+        test_docs = vectorstore.similarity_search("test", k=1)
+        
+        # Check total documents
+        all_docs = vectorstore.similarity_search("", k=2)
+        
+        return {
+            "status": "success",
+            "database": MONGODB_DB_NAME,
+            "collections": collections,
+            "vectorstore_test_docs": len(test_docs),
+            "vectorstore_total_docs": len(all_docs),
+            "bot_id": bot_id
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

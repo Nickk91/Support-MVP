@@ -437,3 +437,32 @@ def _check_document_relevance(documents: List[Document], question: str) -> bool:
     
     logger.warning("🔍 RELEVANCE CHECK - No documents found to be relevant")
     return False
+
+
+# Add to your app/rag/core.py or create a debug route
+@app.route("/api/debug/vectorstore-status")
+def debug_vectorstore_status():
+    from app.rag.vectorstore import get_vectorstore
+    from pymongo import MongoClient
+    
+    bot_id = request.args.get("bot_id", "6929da21940b144ec2a916c6")  # Your bot ID
+    
+    try:
+        # Check MongoDB connection
+        client = MongoClient(MONGODB_URI)
+        db = client[MONGODB_DB_NAME]
+        collections = db.list_collection_names()
+        
+        # Check vector store
+        vectorstore = get_vectorstore(bot_id)
+        test_docs = vectorstore.similarity_search("test", k=1)
+        
+        return jsonify({
+            "status": "success",
+            "database": MONGODB_DB_NAME,
+            "collections": collections,
+            "vectorstore_documents": len(test_docs),
+            "bot_id": bot_id
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)})
