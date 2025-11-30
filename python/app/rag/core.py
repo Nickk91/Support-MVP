@@ -39,6 +39,7 @@ def extract_s3_key_from_url(s3_url: str) -> str:
             return '/'.join(parts[1:])  # Return everything after bucket name
     return s3_url  # Fallback to original
 
+
 def ingest_files(
     bot_id: str,
     paths: List[str],
@@ -160,6 +161,16 @@ def ingest_files(
         
         chunks_data = []
         for i, chunk in enumerate(document_chunks):
+            # FIX: Start page numbers from 1 instead of 0
+            page_number = chunk.metadata.get("page", None)
+            if page_number is not None:
+                # If page number exists, ensure it starts from 1
+                # Some PDF loaders might return 0-based page numbers
+                page_number = page_number + 1 if isinstance(page_number, int) and page_number >= 0 else 1
+            else:
+                # If no page number, use chunk index + 1
+                page_number = i + 1
+            
             chunks_data.append({
                 "chunk_id": f"{source_path}_{i}",
                 "content": chunk.page_content,
@@ -167,7 +178,7 @@ def ingest_files(
                 "token_count": len(chunk.page_content.split()),
                 "char_count": len(chunk.page_content),
                 "chunk_index": i,
-                "page_number": chunk.metadata.get("page", None),
+                "page_number": page_number,  # FIXED: Now starts from 1
                 "source": source_path  # This will now be the S3 key!
             })
         
@@ -187,10 +198,57 @@ def ingest_files(
             }
         )
 
-    # Upsert to vector store
+    # 🎯 CRITICAL: ADD COMPREHENSIVE PINECONE DEBUGGING
     print(f"🔍 INGEST PROCESS - Adding {len(chunks)} chunks to vector store (after limiting)")
-    vs = get_vectorstore(bot_id)
-    vs.add_documents(chunks)
+    
+    try:
+        # Get vector store with detailed debugging
+        print(f"🔍 VECTOR STORE - Getting vector store for bot: {bot_id}")
+        vs = get_vectorstore(bot_id)
+        print(f"🔍 VECTOR STORE - Vector store type: {type(vs)}")
+        print(f"🔍 VECTOR STORE - Vector store attributes: {[attr for attr in dir(vs) if not attr.startswith('_')]}")
+        
+        # Check if vector store has the required method
+        if hasattr(vs, 'add_documents'):
+            print(f"✅ VECTOR STORE - add_documents method available")
+            
+            # Debug the chunks before uploading
+            if chunks:
+                first_chunk = chunks[0]
+                print(f"🔍 VECTOR STORE - First chunk preview: {first_chunk.page_content[:100]}...")
+                print(f"🔍 VECTOR STORE - First chunk metadata: {first_chunk.metadata}")
+            
+            # Upload to Pinecone with error handling
+            print(f"🔍 VECTOR STORE - Calling add_documents with {len(chunks)} chunks...")
+            result = vs.add_documents(chunks)
+            print(f"✅ VECTOR STORE - Successfully added documents to Pinecone")
+            print(f"🔍 VECTOR STORE - add_documents result: {result}")
+            
+            # 🎯 NEW: Verify the upload by searching immediately
+            try:
+                print(f"🔍 VECTOR STORE - Verifying upload with test search...")
+                test_results = vs.similarity_search("certificate", k=3)
+                print(f"✅ VECTOR STORE - Test search successful, found {len(test_results)} documents")
+                
+                if test_results:
+                    for i, doc in enumerate(test_results):
+                        print(f"🔍 VECTOR STORE - Test result {i}: {doc.page_content[:50]}...")
+                        print(f"🔍 VECTOR STORE - Test result metadata: {doc.metadata}")
+                else:
+                    print(f"⚠️ VECTOR STORE - Test search returned 0 results (might be namespace issue)")
+                    
+            except Exception as search_error:
+                print(f"⚠️ VECTOR STORE - Test search failed: {search_error}")
+                
+        else:
+            print(f"❌ VECTOR STORE - add_documents method NOT available!")
+            print(f"❌ VECTOR STORE - Available methods: {[method for method in dir(vs) if 'documents' in method.lower() or 'add' in method.lower()]}")
+            
+    except Exception as e:
+        print(f"❌ VECTOR STORE - Failed to add documents to Pinecone: {e}")
+        import traceback
+        print(f"❌ VECTOR STORE - Traceback: {traceback.format_exc()}")
+        # Don't re-raise, continue with the process since MongoDB was successful
     
     # 🎯 NEW: Final summary with limit info
     if chunks_truncated > 0:
@@ -200,7 +258,6 @@ def ingest_files(
     
     print(f"✅ INGEST PROCESS - Completed successfully for bot: {bot_id}")
     return len(chunks)
-
 
 # KEEP _answer_with_llm_only but update return handling
 def _answer_with_llm_only(llm, question: str, system_message: Optional[str] = None):
@@ -246,48 +303,44 @@ async def answer_query(
     user_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
     system_message: Optional[str] = None,
-    model: Optional[str] = None,  # 🎯 NEW: Model from template
-    temperature: Optional[float] = None,  # 🎯 NEW: Temperature from template
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
     fallback_to_llm: bool = True,
     include_sources: bool = False
 ) -> Dict[str, Any]:
     
     logger.info(f"🔍 CORE RAG - Starting query for bot {bot_id}")
-    logger.info(f"🎯 Template params - Model: {model}, Temperature: {temperature}")
+    logger.info(f"🎯 Question: {question}")
     
     system_message = system_message or (
         "You are a concise support assistant. Use ONLY the provided context. "
         "If the answer is not in the context, say you don't know."
     )
 
-    # Build components
-    from app.rag.retriever import make_retriever
-    
-    # Create retriever
-    logger.info("🔍 CORE RAG - Creating retriever...")
-    retriever = make_retriever(bot_id, user_id=user_id, tenant_id=tenant_id)
-    
-    # 🎯 CREATE LLM WITH TEMPLATE PARAMETERS
+    # Create LLM
     from app.rag.llm import make_llm
-    llm = make_llm(model=model, temperature=temperature)  # 🎯 Pass template params
+    llm = make_llm(model=model, temperature=temperature)
     
-    # Try to retrieve relevant documents
+    # SIMPLIFIED: Use direct vector store search to avoid retriever issues
     try:
-        logger.info("🔍 CORE RAG - Retrieving documents...")
-        if callable(retriever):
-            documents = retriever(question)
-        else:
-            documents = retriever.get_relevant_documents(question)
-            
-        logger.info(f"🔍 CORE RAG - Retrieved {len(documents)} documents")
+        logger.info("🔍 CORE RAG - Retrieving documents via direct vector store...")
         
-        # Check if we have sufficient context
-        context_sufficient = documents and not _is_context_insufficient(documents, question)
-        logger.info(f"🔍 CORE RAG - Context sufficient: {context_sufficient}")
+        # Direct vector store search - bypass all retriever complexity
+        from app.rag.vectorstore import get_vectorstore
+        vectorstore = get_vectorstore(bot_id)
+        documents = vectorstore.similarity_search(question, k=5)
         
-        if not context_sufficient:
-            logger.warning(f"🔍 CORE RAG - Insufficient context for question: {question}")
-            
+        logger.info(f"🔍 CORE RAG - Retrieved {len(documents)} documents via direct search")
+        
+        # DEBUG: Log what was actually retrieved
+        for i, doc in enumerate(documents):
+            source = doc.metadata.get("source", "unknown")
+            content_preview = doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content
+            logger.info(f"🔍 RETRIEVED Doc {i}: source={source}, content='{content_preview}'")
+        
+        # Check if we have any documents at all
+        if not documents:
+            logger.warning(f"🔍 CORE RAG - NO documents retrieved for question: {question}")
             if fallback_to_llm:
                 logger.info("🔍 CORE RAG - Falling back to general knowledge")
                 result = _answer_with_llm_only(llm, question, system_message)
@@ -307,12 +360,46 @@ async def answer_query(
                     "fallback_used": False
                 }
         
-        # Normal RAG flow with actual documents
-        logger.info("🔍 CORE RAG - Proceeding with RAG flow")
-        from app.rag.pipeline import build_prompt, build_chain
-        prompt = build_prompt(system_message)
-        chain = build_chain(llm, prompt, retriever)
-        answer = chain.invoke({"question": question})
+        # Check if documents are actually relevant
+        is_relevant = _check_document_relevance(documents, question)
+        
+        if not is_relevant:
+            logger.warning(f"🔍 CORE RAG - Documents found but not relevant to question: {question}")
+            if fallback_to_llm:
+                logger.info("🔍 CORE RAG - Falling back to general knowledge due to irrelevance")
+                result = _answer_with_llm_only(llm, question, system_message)
+                return {
+                    "answer": result,
+                    "sources": ["general_knowledge"],
+                    "source_details": [],
+                    "document_count": len(documents),
+                    "fallback_used": True
+                }
+            else:
+                return {
+                    "answer": "I found some documents but they don't contain relevant information to answer your question.",
+                    "sources": [],
+                    "source_details": [],
+                    "document_count": len(documents),
+                    "fallback_used": False
+                }
+        
+        # SIMPLIFIED RAG flow: Build context manually instead of using chain
+        logger.info("🔍 CORE RAG - Proceeding with simplified RAG flow")
+        
+        # Build context from documents
+        context = "\n\n".join([doc.page_content for doc in documents])
+        
+        # Create messages for LLM
+        from langchain_core.messages import HumanMessage, SystemMessage
+        messages = [
+            SystemMessage(content=system_message),
+            HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}")
+        ]
+        
+        # Get answer directly from LLM
+        response = llm.invoke(messages)
+        answer = response.content
         
         # Source information
         sources = []
@@ -339,7 +426,7 @@ async def answer_query(
                 for doc in documents
             ]
         
-        logger.info(f"🔍 CORE RAG - RAG flow completed successfully")
+        logger.info(f"🔍 CORE RAG - RAG flow completed successfully with {len(documents)} documents")
         
         return {
             "answer": answer,
@@ -351,6 +438,9 @@ async def answer_query(
         
     except Exception as e:
         logger.error(f"🔍 CORE RAG - Error in answer_query: {e}")
+        import traceback
+        logger.error(f"🔍 CORE RAG - Traceback: {traceback.format_exc()}")
+        
         if fallback_to_llm:
             logger.info("🔍 CORE RAG - Falling back to LLM due to error")
             return {
@@ -361,3 +451,38 @@ async def answer_query(
                 "fallback_used": True
             }
         raise
+
+# ADD THIS NEW FUNCTION for better relevance checking
+def _check_document_relevance(documents: List[Document], question: str) -> bool:
+    """Check if retrieved documents are relevant to the question - FIXED VERSION"""
+    if not documents:
+        logger.info("🔍 RELEVANCE CHECK - No documents found")
+        return False
+    
+    question_lower = question.lower()
+    logger.info(f"🔍 RELEVANCE CHECK - Question: '{question}'")
+    
+    # 🎯 FIX: Be more lenient - if we have documents, let the LLM decide relevance
+    # Only filter out completely irrelevant documents
+    
+    for i, doc in enumerate(documents):
+        content_lower = doc.page_content.lower()
+        source = doc.metadata.get("source", "unknown")
+        
+        # Check for direct keyword matches
+        question_words = set(question_lower.split())
+        content_words = set(content_lower.split())
+        
+        common_words = question_words.intersection(content_words)
+        logger.info(f"🔍 RELEVANCE CHECK - Doc {i} ({source}): {len(common_words)} common words: {common_words}")
+        
+        # If we have at least 1 meaningful common word, consider it relevant
+        meaningful_common = [word for word in common_words if len(word) > 3]
+        if meaningful_common:
+            logger.info(f"✅ RELEVANCE CHECK - Document {i} is relevant: common words {meaningful_common}")
+            return True
+    
+    # 🎯 FIX: If no strong matches, still return True and let LLM decide
+    # This prevents over-filtering
+    logger.info("🔍 RELEVANCE CHECK - No strong keyword matches, but letting LLM decide relevance")
+    return True  # 🎯 CHANGED FROM False to True

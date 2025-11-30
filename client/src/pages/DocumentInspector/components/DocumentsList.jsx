@@ -21,7 +21,7 @@ export default function DocumentsList({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="h-[600px]">
+        <ScrollArea className="lg:h-[600px]">
           <div className="space-y-3">
             {documents.map((doc, index) => (
               <DocumentCard
@@ -53,19 +53,23 @@ function DocumentCard({ document, isSelected, onSelect }) {
     >
       <div className="flex items-start space-x-3">
         <FileIcon className="h-5 w-5 text-muted-foreground mt-0.5" />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 ">
           <p className="font-medium text-sm truncate text-foreground">
             {getFileName(document.document_path)}
           </p>
-          <p className="text-xs text-muted-foreground truncate">
-            {document.document_path}
-          </p>
-          <div className="flex items-center space-x-2 mt-2">
-            <Badge variant="secondary" className="text-xs">
-              {new Date(document.last_processed).toLocaleDateString()}
+
+          <div className="flex flex-col gap-1 mt-2">
+            <Badge
+              variant="secondary"
+              className="text-xs truncate max-w-[210px]"
+            >
+              Created: {new Date(document.last_processed).toLocaleDateString()}
             </Badge>
             {document.user_id && (
-              <Badge variant="outline" className="text-xs">
+              <Badge
+                variant="outline"
+                className="text-xs truncate max-w-[210px]"
+              >
                 User: {document.user_id}
               </Badge>
             )}

@@ -32,7 +32,7 @@ export default function ChunksList({ chunks }) {
 
 function ChunkCard({ chunk, index, onCopy }) {
   return (
-    <Card className="relative">
+    <Card className="relative w-[95%] mx-auto">
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center space-x-2">
@@ -57,9 +57,11 @@ function ChunkCard({ chunk, index, onCopy }) {
             <Copy className="h-3 w-3" />
           </Button>
         </div>
-        <p className="text-sm whitespace-pre-wrap text-foreground">
-          {chunk.content}
-        </p>
+        <div className="w-full min-w-0">
+          <p className="text-sm whitespace-pre-wrap break-all text-foreground">
+            {chunk.content}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

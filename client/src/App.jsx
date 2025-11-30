@@ -38,7 +38,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-[960px] mx-auto p-4">
+      <main className="max-w-[1400px]  mx-auto p-4">
         <Outlet />
       </main>
     </div>
