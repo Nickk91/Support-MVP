@@ -337,10 +337,12 @@ async def end_evaluation(session_id: str):
     return {"message": "Evaluation session ended"}
 
 
-# Add to existing evaluate.py file
-# ADD THIS DEBUG ENDPOINT AT THE BOTTOM:
+# =============================================================================
+# DEBUG ENDPOINTS
+# =============================================================================
+
 @router.get("/debug/vectorstore-status")
-async def debug_vectorstore_status(bot_id: str = "6929da21940b144ec2a916c6"):
+async def debug_vectorstore_status(bot_id: str = "692c1d5b940b144ec2a916ee"):
     """Debug endpoint to check vector store status"""
     try:
         from app.rag.vectorstore import get_vectorstore
@@ -366,6 +368,34 @@ async def debug_vectorstore_status(bot_id: str = "6929da21940b144ec2a916c6"):
             "vectorstore_test_docs": len(test_docs),
             "vectorstore_total_docs": len(all_docs),
             "bot_id": bot_id
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@router.get("/debug/search-test")
+async def debug_search_test(
+    bot_id: str = "692c1d5b940b144ec2a916ee",
+    query: str = "certificate"
+):
+    """Test search functionality"""
+    try:
+        from app.rag.vectorstore import get_vectorstore
+        vectorstore = get_vectorstore(bot_id)
+        documents = vectorstore.similarity_search(query, k=5)
+        
+        results = []
+        for i, doc in enumerate(documents):
+            results.append({
+                "rank": i + 1,
+                "source": doc.metadata.get("source", "unknown"),
+                "content_preview": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+            })
+        
+        return {
+            "status": "success",
+            "query": query,
+            "results_found": len(documents),
+            "results": results
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
