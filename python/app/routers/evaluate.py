@@ -371,31 +371,47 @@ async def debug_vectorstore_status(bot_id: str = "692c1d5b940b144ec2a916ee"):
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
-
+    
+    
 @router.get("/debug/search-test")
-async def debug_search_test(
-    bot_id: str = "692c1d5b940b144ec2a916ee",
-    query: str = "certificate"
-):
-    """Test search functionality"""
+async def debug_search_test(bot_id: str, query: str = "certificate"):
+    """Test Pinecone search directly"""
     try:
         from app.rag.vectorstore import get_vectorstore
-        vectorstore = get_vectorstore(bot_id)
-        documents = vectorstore.similarity_search(query, k=5)
         
-        results = []
-        for i, doc in enumerate(documents):
-            results.append({
+        print(f"🔍 DEBUG SEARCH - Testing search for bot: {bot_id}, query: {query}")
+        
+        vs = get_vectorstore(bot_id)
+        print(f"🔍 DEBUG SEARCH - Vector store type: {type(vs)}")
+        
+        # Test direct search
+        results = vs.similarity_search(query, k=5)
+        print(f"🔍 DEBUG SEARCH - Found {len(results)} documents")
+        
+        # Check relevance
+        from app.rag.core import _check_document_relevance
+        is_relevant = _check_document_relevance(results, query)
+        print(f"🔍 DEBUG SEARCH - Relevance check: {is_relevant}")
+        
+        search_preview = []
+        for i, doc in enumerate(results):
+            search_preview.append({
                 "rank": i + 1,
+                "content_preview": doc.page_content[:100],
                 "source": doc.metadata.get("source", "unknown"),
-                "content_preview": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+                "bot_id": doc.metadata.get("bot_id", "unknown"),
+                "relevance_score": getattr(doc, 'score', None)
             })
         
         return {
-            "status": "success",
-            "query": query,
-            "results_found": len(documents),
-            "results": results
+            "search_success": True,
+            "documents_found": len(results),
+            "relevance_check_passed": is_relevant,
+            "search_preview": search_preview
         }
+        
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        print(f"❌ DEBUG SEARCH - Error: {e}")
+        import traceback
+        print(f"❌ DEBUG SEARCH - Traceback: {traceback.format_exc()}")
+        return {"error": str(e), "search_success": False}

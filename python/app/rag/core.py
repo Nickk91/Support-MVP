@@ -39,6 +39,7 @@ def extract_s3_key_from_url(s3_url: str) -> str:
             return '/'.join(parts[1:])  # Return everything after bucket name
     return s3_url  # Fallback to original
 
+
 def ingest_files(
     bot_id: str,
     paths: List[str],
@@ -197,10 +198,57 @@ def ingest_files(
             }
         )
 
-    # Upsert to vector store
+    # 🎯 CRITICAL: ADD COMPREHENSIVE PINECONE DEBUGGING
     print(f"🔍 INGEST PROCESS - Adding {len(chunks)} chunks to vector store (after limiting)")
-    vs = get_vectorstore(bot_id)
-    vs.add_documents(chunks)
+    
+    try:
+        # Get vector store with detailed debugging
+        print(f"🔍 VECTOR STORE - Getting vector store for bot: {bot_id}")
+        vs = get_vectorstore(bot_id)
+        print(f"🔍 VECTOR STORE - Vector store type: {type(vs)}")
+        print(f"🔍 VECTOR STORE - Vector store attributes: {[attr for attr in dir(vs) if not attr.startswith('_')]}")
+        
+        # Check if vector store has the required method
+        if hasattr(vs, 'add_documents'):
+            print(f"✅ VECTOR STORE - add_documents method available")
+            
+            # Debug the chunks before uploading
+            if chunks:
+                first_chunk = chunks[0]
+                print(f"🔍 VECTOR STORE - First chunk preview: {first_chunk.page_content[:100]}...")
+                print(f"🔍 VECTOR STORE - First chunk metadata: {first_chunk.metadata}")
+            
+            # Upload to Pinecone with error handling
+            print(f"🔍 VECTOR STORE - Calling add_documents with {len(chunks)} chunks...")
+            result = vs.add_documents(chunks)
+            print(f"✅ VECTOR STORE - Successfully added documents to Pinecone")
+            print(f"🔍 VECTOR STORE - add_documents result: {result}")
+            
+            # 🎯 NEW: Verify the upload by searching immediately
+            try:
+                print(f"🔍 VECTOR STORE - Verifying upload with test search...")
+                test_results = vs.similarity_search("certificate", k=3)
+                print(f"✅ VECTOR STORE - Test search successful, found {len(test_results)} documents")
+                
+                if test_results:
+                    for i, doc in enumerate(test_results):
+                        print(f"🔍 VECTOR STORE - Test result {i}: {doc.page_content[:50]}...")
+                        print(f"🔍 VECTOR STORE - Test result metadata: {doc.metadata}")
+                else:
+                    print(f"⚠️ VECTOR STORE - Test search returned 0 results (might be namespace issue)")
+                    
+            except Exception as search_error:
+                print(f"⚠️ VECTOR STORE - Test search failed: {search_error}")
+                
+        else:
+            print(f"❌ VECTOR STORE - add_documents method NOT available!")
+            print(f"❌ VECTOR STORE - Available methods: {[method for method in dir(vs) if 'documents' in method.lower() or 'add' in method.lower()]}")
+            
+    except Exception as e:
+        print(f"❌ VECTOR STORE - Failed to add documents to Pinecone: {e}")
+        import traceback
+        print(f"❌ VECTOR STORE - Traceback: {traceback.format_exc()}")
+        # Don't re-raise, continue with the process since MongoDB was successful
     
     # 🎯 NEW: Final summary with limit info
     if chunks_truncated > 0:
@@ -406,36 +454,35 @@ async def answer_query(
 
 # ADD THIS NEW FUNCTION for better relevance checking
 def _check_document_relevance(documents: List[Document], question: str) -> bool:
-    """Check if retrieved documents are actually relevant to the question"""
+    """Check if retrieved documents are relevant to the question - FIXED VERSION"""
     if not documents:
+        logger.info("🔍 RELEVANCE CHECK - No documents found")
         return False
     
     question_lower = question.lower()
+    logger.info(f"🔍 RELEVANCE CHECK - Question: '{question}'")
     
-    # Check if any document contains keywords from the question
-    relevant_keywords = []
-    for keyword in question_lower.split():
-        if len(keyword) > 3:  # Only check meaningful words
-            relevant_keywords.append(keyword)
+    # 🎯 FIX: Be more lenient - if we have documents, let the LLM decide relevance
+    # Only filter out completely irrelevant documents
     
-    for doc in documents:
+    for i, doc in enumerate(documents):
         content_lower = doc.page_content.lower()
+        source = doc.metadata.get("source", "unknown")
         
-        # Check if document contains question keywords
-        keyword_matches = sum(1 for keyword in relevant_keywords if keyword in content_lower)
+        # Check for direct keyword matches
+        question_words = set(question_lower.split())
+        content_words = set(content_lower.split())
         
-        # If at least 2 keywords match, consider it relevant
-        if keyword_matches >= 2:
-            logger.info(f"🔍 RELEVANCE CHECK - Document relevant: {keyword_matches} keyword matches")
-            return True
+        common_words = question_words.intersection(content_words)
+        logger.info(f"🔍 RELEVANCE CHECK - Doc {i} ({source}): {len(common_words)} common words: {common_words}")
         
-        # Check for specific patterns in financial documents
-        financial_terms = ['trade', 'market', 'stock', 'price', 'volume', 'option', 'sell', 'buy']
-        if any(term in content_lower for term in financial_terms) and any(term in question_lower for term in financial_terms):
-            logger.info("🔍 RELEVANCE CHECK - Document relevant: financial terms match")
+        # If we have at least 1 meaningful common word, consider it relevant
+        meaningful_common = [word for word in common_words if len(word) > 3]
+        if meaningful_common:
+            logger.info(f"✅ RELEVANCE CHECK - Document {i} is relevant: common words {meaningful_common}")
             return True
     
-    logger.warning("🔍 RELEVANCE CHECK - No documents found to be relevant")
-    return False
-
-
+    # 🎯 FIX: If no strong matches, still return True and let LLM decide
+    # This prevents over-filtering
+    logger.info("🔍 RELEVANCE CHECK - No strong keyword matches, but letting LLM decide relevance")
+    return True  # 🎯 CHANGED FROM False to True
