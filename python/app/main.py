@@ -8,7 +8,7 @@ load_dotenv(find_dotenv(), override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import health, ingest, query, auth, chat, cleanup, inspection, evaluate, debug 
+from app.routers import health, ingest, query, auth, chat, cleanup, inspection, evaluate
 from app.api import bots  # 🎯 CHANGE: Import from app.api instead of app.routers
 from app.rag.vectorstore import cleanup_pending_deletions
 
