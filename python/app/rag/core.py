@@ -255,48 +255,44 @@ async def answer_query(
     user_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
     system_message: Optional[str] = None,
-    model: Optional[str] = None,  # 🎯 NEW: Model from template
-    temperature: Optional[float] = None,  # 🎯 NEW: Temperature from template
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
     fallback_to_llm: bool = True,
     include_sources: bool = False
 ) -> Dict[str, Any]:
     
     logger.info(f"🔍 CORE RAG - Starting query for bot {bot_id}")
-    logger.info(f"🎯 Template params - Model: {model}, Temperature: {temperature}")
+    logger.info(f"🎯 Question: {question}")
     
     system_message = system_message or (
         "You are a concise support assistant. Use ONLY the provided context. "
         "If the answer is not in the context, say you don't know."
     )
 
-    # Build components
-    from app.rag.retriever import make_retriever
-    
-    # Create retriever
-    logger.info("🔍 CORE RAG - Creating retriever...")
-    retriever = make_retriever(bot_id, user_id=user_id, tenant_id=tenant_id)
-    
-    # 🎯 CREATE LLM WITH TEMPLATE PARAMETERS
+    # Create LLM
     from app.rag.llm import make_llm
-    llm = make_llm(model=model, temperature=temperature)  # 🎯 Pass template params
+    llm = make_llm(model=model, temperature=temperature)
     
-    # Try to retrieve relevant documents
+    # SIMPLIFIED: Use direct vector store search to avoid retriever issues
     try:
-        logger.info("🔍 CORE RAG - Retrieving documents...")
-        if callable(retriever):
-            documents = retriever(question)
-        else:
-            documents = retriever.get_relevant_documents(question)
-            
-        logger.info(f"🔍 CORE RAG - Retrieved {len(documents)} documents")
+        logger.info("🔍 CORE RAG - Retrieving documents via direct vector store...")
         
-        # Check if we have sufficient context
-        context_sufficient = documents and not _is_context_insufficient(documents, question)
-        logger.info(f"🔍 CORE RAG - Context sufficient: {context_sufficient}")
+        # Direct vector store search - bypass all retriever complexity
+        from app.rag.vectorstore import get_vectorstore
+        vectorstore = get_vectorstore(bot_id)
+        documents = vectorstore.similarity_search(question, k=5)
         
-        if not context_sufficient:
-            logger.warning(f"🔍 CORE RAG - Insufficient context for question: {question}")
-            
+        logger.info(f"🔍 CORE RAG - Retrieved {len(documents)} documents via direct search")
+        
+        # DEBUG: Log what was actually retrieved
+        for i, doc in enumerate(documents):
+            source = doc.metadata.get("source", "unknown")
+            content_preview = doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content
+            logger.info(f"🔍 RETRIEVED Doc {i}: source={source}, content='{content_preview}'")
+        
+        # Check if we have any documents at all
+        if not documents:
+            logger.warning(f"🔍 CORE RAG - NO documents retrieved for question: {question}")
             if fallback_to_llm:
                 logger.info("🔍 CORE RAG - Falling back to general knowledge")
                 result = _answer_with_llm_only(llm, question, system_message)
@@ -316,12 +312,46 @@ async def answer_query(
                     "fallback_used": False
                 }
         
-        # Normal RAG flow with actual documents
-        logger.info("🔍 CORE RAG - Proceeding with RAG flow")
-        from app.rag.pipeline import build_prompt, build_chain
-        prompt = build_prompt(system_message)
-        chain = build_chain(llm, prompt, retriever)
-        answer = chain.invoke({"question": question})
+        # Check if documents are actually relevant
+        is_relevant = _check_document_relevance(documents, question)
+        
+        if not is_relevant:
+            logger.warning(f"🔍 CORE RAG - Documents found but not relevant to question: {question}")
+            if fallback_to_llm:
+                logger.info("🔍 CORE RAG - Falling back to general knowledge due to irrelevance")
+                result = _answer_with_llm_only(llm, question, system_message)
+                return {
+                    "answer": result,
+                    "sources": ["general_knowledge"],
+                    "source_details": [],
+                    "document_count": len(documents),
+                    "fallback_used": True
+                }
+            else:
+                return {
+                    "answer": "I found some documents but they don't contain relevant information to answer your question.",
+                    "sources": [],
+                    "source_details": [],
+                    "document_count": len(documents),
+                    "fallback_used": False
+                }
+        
+        # SIMPLIFIED RAG flow: Build context manually instead of using chain
+        logger.info("🔍 CORE RAG - Proceeding with simplified RAG flow")
+        
+        # Build context from documents
+        context = "\n\n".join([doc.page_content for doc in documents])
+        
+        # Create messages for LLM
+        from langchain_core.messages import HumanMessage, SystemMessage
+        messages = [
+            SystemMessage(content=system_message),
+            HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}")
+        ]
+        
+        # Get answer directly from LLM
+        response = llm.invoke(messages)
+        answer = response.content
         
         # Source information
         sources = []
@@ -348,7 +378,7 @@ async def answer_query(
                 for doc in documents
             ]
         
-        logger.info(f"🔍 CORE RAG - RAG flow completed successfully")
+        logger.info(f"🔍 CORE RAG - RAG flow completed successfully with {len(documents)} documents")
         
         return {
             "answer": answer,
@@ -360,6 +390,9 @@ async def answer_query(
         
     except Exception as e:
         logger.error(f"🔍 CORE RAG - Error in answer_query: {e}")
+        import traceback
+        logger.error(f"🔍 CORE RAG - Traceback: {traceback.format_exc()}")
+        
         if fallback_to_llm:
             logger.info("🔍 CORE RAG - Falling back to LLM due to error")
             return {
@@ -370,3 +403,37 @@ async def answer_query(
                 "fallback_used": True
             }
         raise
+
+# ADD THIS NEW FUNCTION for better relevance checking
+def _check_document_relevance(documents: List[Document], question: str) -> bool:
+    """Check if retrieved documents are actually relevant to the question"""
+    if not documents:
+        return False
+    
+    question_lower = question.lower()
+    
+    # Check if any document contains keywords from the question
+    relevant_keywords = []
+    for keyword in question_lower.split():
+        if len(keyword) > 3:  # Only check meaningful words
+            relevant_keywords.append(keyword)
+    
+    for doc in documents:
+        content_lower = doc.page_content.lower()
+        
+        # Check if document contains question keywords
+        keyword_matches = sum(1 for keyword in relevant_keywords if keyword in content_lower)
+        
+        # If at least 2 keywords match, consider it relevant
+        if keyword_matches >= 2:
+            logger.info(f"🔍 RELEVANCE CHECK - Document relevant: {keyword_matches} keyword matches")
+            return True
+        
+        # Check for specific patterns in financial documents
+        financial_terms = ['trade', 'market', 'stock', 'price', 'volume', 'option', 'sell', 'buy']
+        if any(term in content_lower for term in financial_terms) and any(term in question_lower for term in financial_terms):
+            logger.info("🔍 RELEVANCE CHECK - Document relevant: financial terms match")
+            return True
+    
+    logger.warning("🔍 RELEVANCE CHECK - No documents found to be relevant")
+    return False
