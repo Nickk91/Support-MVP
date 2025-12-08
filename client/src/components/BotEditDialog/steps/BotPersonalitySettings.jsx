@@ -2,7 +2,6 @@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Slider } from "@/components/ui/slider";
 import { useState, useEffect, useRef } from "react";
 import { useBotWizardStore } from "@/store/botWizardStore";
 import { Button } from "@/components/ui/button";
@@ -13,6 +12,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { HelpCircle, Edit, Save } from "lucide-react";
+import { TempSlider } from "@/components/TempSlider";
 
 export default function BotPersonalitySettings({ bot, onChange }) {
   const { templates } = useBotWizardStore();
@@ -171,12 +171,6 @@ export default function BotPersonalitySettings({ bot, onChange }) {
     } else {
       setIsEditingGreeting(true);
     }
-  };
-
-  const getTemperatureLabel = (temp) => {
-    if (temp <= 0.3) return "More Consistent";
-    if (temp <= 0.6) return "Balanced";
-    return "More Creative";
   };
 
   const currentTemplate =
@@ -415,38 +409,41 @@ export default function BotPersonalitySettings({ bot, onChange }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Response Creativity</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">Response Creativity</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <p className="text-sm">
+                    Higher values make responses more creative but less
+                    predictable. Lower values make responses more focused and
+                    consistent.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <p className="text-sm text-muted-foreground">
             Control how creative or predictable your bot's responses are
           </p>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="temperature-slider">
-                Temperature: {bot?.temperature || 0.7}
-              </Label>
-              <span className="text-sm font-medium text-muted-foreground">
-                {getTemperatureLabel(bot?.temperature || 0.7)}
-              </span>
-            </div>
-
-            <Slider
-              id="temperature-slider"
-              value={[bot?.temperature || 0.7]}
-              onValueChange={handleTemperatureChange}
-              min={0}
-              max={1}
-              step={0.1}
-              className="w-full"
-            />
-
-            <div className="flex justify-between text-xs text-muted-foreground px-1">
-              <span>More Focused</span>
-              <span>Balanced</span>
-              <span>More Creative</span>
-            </div>
-          </div>
+        <CardContent className="space-y-6">
+          <TempSlider
+            value={[bot?.temperature || 0.7]}
+            onValueChange={handleTemperatureChange}
+            min={0}
+            max={1}
+            step={0.05}
+            showLabels={true}
+            showMarks={true}
+            showHeatIndicator={true}
+            showInfoPanel={true}
+          />
         </CardContent>
       </Card>
     </div>
