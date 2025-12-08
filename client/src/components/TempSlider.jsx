@@ -1,4 +1,4 @@
-// components/TempSlider.jsx (complete updated version)
+// components/TempSlider.jsx (updated version)
 import { useState, forwardRef, useMemo } from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { cn } from "@/lib/utils";
@@ -113,6 +113,59 @@ const TempSlider = forwardRef(
       return gradientString;
     }, []); // Empty dependency array means it only calculates once
 
+    // Get text color based on temperature
+    const getTextColor = (temp) => {
+      const normalized = (temp - min) / (max - min);
+      const percentage = normalized * 100;
+
+      if (percentage <= 10) return "text-indigo-600";
+      if (percentage <= 20) return "text-blue-600";
+      if (percentage <= 30) return "text-cyan-600";
+      if (percentage <= 40) return "text-green-600";
+      if (percentage <= 50) return "text-yellow-600";
+      if (percentage <= 60) return "text-orange-600";
+      if (percentage <= 70) return "text-red-600";
+      if (percentage <= 80) return "text-red-700";
+      if (percentage <= 90) return "text-red-800";
+
+      // For psychedelic, we'll handle this differently
+      return ""; // Empty for psychedelic (handled separately)
+    };
+
+    // Create psychedelic rainbow text effect
+    const PsychedelicText = ({ text }) => {
+      const colors = [
+        "#ef4444", // Red
+        "#f97316", // Orange
+        "#fbbf24", // Yellow
+        "#84cc16", // Lime
+        "#16a34a", // Green
+        "#22d3ee", // Cyan
+        "#3b82f6", // Blue
+        "#8b5cf6", // Indigo
+        "#d946ef", // Purple
+        "#ec4899", // Pink
+      ];
+
+      return (
+        <span className="inline-block">
+          {text.split("").map((char, index) => (
+            <span
+              key={index}
+              className="inline-block animate-pulse"
+              style={{
+                color: colors[index % colors.length],
+                animationDelay: `${index * 0.1}s`,
+                filter: "drop-shadow(0 0 2px currentColor)",
+              }}
+            >
+              {char}
+            </span>
+          ))}
+        </span>
+      );
+    };
+
     // Get thumb color based on temperature
     const getThumbColor = (temp) => {
       const normalized = (temp - min) / (max - min);
@@ -220,25 +273,19 @@ const TempSlider = forwardRef(
               )}
               <div className="text-right">
                 <div
-                  className={`text-sm font-semibold ${
-                    currentValue >= 0.9
-                      ? "text-purple-600 animate-pulse"
-                      : currentValue >= 0.8
-                      ? "text-red-600"
-                      : currentValue >= 0.6
-                      ? "text-orange-600"
-                      : currentValue >= 0.5
-                      ? "text-yellow-600" // Lukewarm gets yellow
-                      : currentValue >= 0.4
-                      ? "text-green-600"
-                      : currentValue >= 0.2
-                      ? "text-blue-600"
-                      : "text-indigo-600"
-                  }`}
+                  className={`text-sm font-semibold ${getTextColor(
+                    currentValue
+                  )} ${currentValue >= 0.9 ? "animate-pulse" : ""}`}
                 >
-                  {getTemperatureLabel(currentValue)}
+                  {currentValue >= 0.9 ? (
+                    <PsychedelicText text={getTemperatureLabel(currentValue)} />
+                  ) : (
+                    getTemperatureLabel(currentValue)
+                  )}
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div
+                  className={`text-xs ${getTextColor(currentValue)} opacity-80`}
+                >
                   {currentValue.toFixed(2)}
                 </div>
               </div>
@@ -354,8 +401,41 @@ const TempSlider = forwardRef(
         {/* Description */}
         {showLabels && (
           <div className="text-center">
-            <p className="text-sm mt-9 text-muted-foreground">
-              {getTemperatureDescription(currentValue)}
+            <p
+              className={`text-sm mt-9 ${getTextColor(
+                currentValue
+              )} font-medium`}
+            >
+              {currentValue >= 0.9 ? (
+                <div className="flex flex-wrap justify-center gap-1">
+                  {"Psychedelic: Chaos Mode".split("").map((char, index) => (
+                    <span
+                      key={index}
+                      className="inline-block animate-pulse"
+                      style={{
+                        color: [
+                          "#ef4444",
+                          "#f97316",
+                          "#fbbf24",
+                          "#84cc16",
+                          "#16a34a",
+                          "#22d3ee",
+                          "#3b82f6",
+                          "#8b5cf6",
+                          "#d946ef",
+                          "#ec4899",
+                        ][index % 10],
+                        animationDelay: `${index * 0.05}s`,
+                        filter: "drop-shadow(0 0 1px currentColor)",
+                      }}
+                    >
+                      {char === " " ? "\u00A0" : char}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                getTemperatureDescription(currentValue)
+              )}
             </p>
           </div>
         )}
