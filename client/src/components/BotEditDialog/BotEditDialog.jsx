@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { useBotWizardStore } from "@/store/botWizardStore";
 import { useUserStore } from "@/store/useUserStore";
+import RobotProgress from "@/components/ui/RobotProgress/RobotProgress";
 import StepProgressIndicator from "./StepProgressIndicator";
 import StepContent from "./StepContent";
 import NavigationButtons from "./NavigationButtons";
@@ -41,6 +42,11 @@ export default function BotEditDialog({
     reset: resetStore,
     isStepValid,
   } = useBotWizardStore();
+
+  // Calculate progress percentage
+  const progress = useMemo(() => {
+    return Math.round(((currentStep + 1) / STEPS.length) * 100);
+  }, [currentStep]);
 
   const updateFormData = useCallback(
     (updates) => {
@@ -110,16 +116,22 @@ export default function BotEditDialog({
         aria-label="Bot Edit Dialog"
         className="max-w-2xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto"
       >
-        <DialogHeader className="px-1 sm:px-0">
-          <DialogTitle>
-            {isNew ? "Create New Bot" : `Edit ${bot?.botName}`}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {isNew
-              ? "Create a new AI assistant by filling out the steps below"
-              : `Edit the settings and configuration for ${bot?.botName}`}
-          </DialogDescription>
-        </DialogHeader>
+        {/* Header with RobotProgress */}
+        <div className="flex items-center gap-4 mb-4">
+          <RobotProgress progress={progress} size="w-12 h-12" />
+          <div className="flex-1">
+            <DialogHeader className="px-1 sm:px-0">
+              <DialogTitle>
+                {isNew ? "Create New Bot" : `Edit ${bot?.botName}`}
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                {isNew
+                  ? "Create a new AI assistant by filling out the steps below"
+                  : `Edit the settings and configuration for ${bot?.botName}`}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+        </div>
 
         <StepProgressIndicator currentStep={currentStep} />
 
@@ -143,6 +155,10 @@ export default function BotEditDialog({
           onSave={handleSave}
           onCancel={handleClose}
         />
+
+        <div className="text-center text-sm text-muted-foreground pt-2">
+          Step {currentStep + 1} of {STEPS.length}
+        </div>
 
         <LoadingOverlay
           show={saveLoading && !fileUploadLoading}
